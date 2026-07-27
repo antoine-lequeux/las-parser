@@ -46,7 +46,7 @@ UseTab: Never
 IndentCaseLabels: true
 IndentPPDirectives: BeforeHash
 
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: BlockIndent
 AlignConsecutiveAssignments: None
 AlignConsecutiveDeclarations: None
 AlignConsecutiveMacros: None
@@ -76,6 +76,7 @@ SpaceAfterCStyleCast: false
 SpaceAfterTemplateKeyword: true
 SpaceBeforeAssignmentOperators: true
 SpaceBeforeParens: ControlStatements
+SpaceBeforeCpp11BracedList: true
 
 SortIncludes: CaseSensitive
 SortUsingDeclarations: Lexicographic
