@@ -17,10 +17,11 @@ set(CLI11_BUILD_DOCS OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(CLI11)
 
 add_executable(las_parser 
-src/main.cpp
-src/las_data.hpp
-src/memory_mapper.hpp
-src/types.hpp
+    src/main.cpp
+    src/las_data.hpp
+    src/memory_mapper.hpp
+    src/types.hpp
+    src/header_view.hpp
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

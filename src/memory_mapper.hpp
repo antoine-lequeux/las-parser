@@ -25,8 +25,10 @@ public:
         if (ec) return std::unexpected("File does not exist or cannot be accessed.");
         if (size == 0) return std::unexpected("File is empty.");
 
-        HANDLE file_handle = CreateFileW(filepath.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        HANDLE file_handle = CreateFileW(
+            filepath.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
         if (file_handle == INVALID_HANDLE_VALUE) return std::unexpected("Failed to open file via CreateFileW.");
 
         HANDLE mapping_handle = CreateFileMappingW(file_handle, nullptr, PAGE_READONLY, 0, 0, nullptr);

@@ -1,4 +1,4 @@
-#include "las_data.hpp"
+#include "header_view.hpp"
 #include "memory_mapper.hpp"
 #include <print>
 #include <string_view>
@@ -13,23 +13,20 @@ int main()
         return 1;
     }
 
-    const laspar::MemoryMappedFile& las_file = file_result.value();
-    const auto* header = reinterpret_cast<const laspar::LasHeader*>(las_file.data());
-
-    std::string_view signature(header->signature);
-    if (signature != "LASF")
+    auto header_result = laspar::validate_las_header(file_result->data(), file_result->size());
+    if (!header_result)
     {
-        std::println(stderr, "Error: Not a valid LAS file (Missing LASF signature).");
+        std::println(stderr, "Invalid LAS file: {}", header_result.error());
         return 1;
     }
 
-    std::print("Successfully mapped LAS file:\n"
-               "  Signature: {}\n"
-               "  Version:   {}.{}\n"
-               "  Points:    {}\n"
-               "  Offset:    {} bytes\n",
-               signature, header->version_major, header->version_minor, header->number_of_point_records,
-               header->offset_to_point_data);
+    const auto& view = header_result.value();
+    std::print(
+        "Successfully mapped LAS file:\n"
+        "  Points: {}\n"
+        "  Offset: {} bytes\n",
+        view.point_count, view.point_data_offset
+    );
 
     return 0;
 }
