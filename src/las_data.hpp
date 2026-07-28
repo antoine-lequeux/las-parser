@@ -55,12 +55,12 @@ struct LasHeader
     u64 number_of_point_records;
     std::array<u64, 15> number_of_points_by_return;
 };
-
 static_assert(sizeof(LasHeader) == 375, "LasHeader size must be exactly 375 bytes.");
 
 // Byte layout of Point Data Record Format 0 as defined here:
 // https://paulbourke.net/dataformats/laz/LAS_1_4_r15.pdf (p.16).
-struct PointRecord0
+// Shared by formats 0 to 5.
+struct LasPointBase
 {
     i32 x;
     i32 y;
@@ -75,8 +75,104 @@ struct PointRecord0
     u8 user_data;
     u16 point_source_id;
 };
+static_assert(sizeof(LasPointBase) == 20, "LasPointBase must be exactly 20 bytes");
 
-static_assert(sizeof(PointRecord0) == 20, "PointRecord0 size must be exactly 20 bytes.");
+struct LasColor
+{
+    u16 red;
+    u16 green;
+    u16 blue;
+};
+
+struct LasWavePacket
+{
+    u8 descriptor_index;
+    u64 byte_offset;
+    u32 packet_size;
+    float return_point_waveform_loc;
+    float xt;
+    float yt;
+    float zt;
+};
+
+struct LasPointFormat0
+{
+    LasPointBase base;
+};
+struct LasPointFormat1
+{
+    LasPointBase base;
+    double gps_time;
+};
+struct LasPointFormat2
+{
+    LasPointBase base;
+    LasColor color;
+};
+struct LasPointFormat3
+{
+    LasPointBase base;
+    double gps_time;
+    LasColor color;
+};
+struct LasPointFormat4
+{
+    LasPointBase base;
+    double gps_time;
+    LasWavePacket wave;
+};
+struct LasPointFormat5
+{
+    LasPointBase base;
+    double gps_time;
+    LasColor color;
+    LasWavePacket wave;
+};
+
+// Shared by formats 6 to 10.
+struct LasPointBaseModern
+{
+    i32 x;
+    i32 y;
+    i32 z;
+    u16 intensity;
+    u8 return_info;
+    u8 flags;
+    u8 classification;
+    u8 user_data;
+    i16 scan_angle;
+    u16 point_source_id;
+    double gps_time;
+};
+static_assert(sizeof(LasPointBaseModern) == 30, "LasPointBaseModern must be exactly 30 bytes");
+
+struct LasPointFormat6
+{
+    LasPointBaseModern base_modern;
+};
+struct LasPointFormat7
+{
+    LasPointBaseModern base_modern;
+    LasColor color;
+};
+struct LasPointFormat8
+{
+    LasPointBaseModern base_modern;
+    LasColor color;
+    u16 nir;
+};
+struct LasPointFormat9
+{
+    LasPointBaseModern base_modern;
+    LasWavePacket wave;
+};
+struct LasPointFormat10
+{
+    LasPointBaseModern base_modern;
+    LasColor color;
+    u16 nir;
+    LasWavePacket wave;
+};
 
 struct LasPointCoordinates
 {
