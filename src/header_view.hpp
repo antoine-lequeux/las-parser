@@ -14,7 +14,7 @@ struct HeaderView
     u16 point_record_length;
 };
 
-std::expected<HeaderView, std::string_view> validate_las_header(const u8* data, usize file_size)
+inline std::expected<HeaderView, std::string_view> validate_las_header(const u8* data, usize file_size)
 {
     if (file_size < sizeof(LasHeader)) return std::unexpected("File is smaller than the minimum LAS header size.");
 

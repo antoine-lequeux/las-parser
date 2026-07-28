@@ -1,7 +1,6 @@
 #include "memory_mapper.hpp"
 #include "scalar_processing.hpp"
 #include <print>
-#include <string_view>
 
 int main()
 {

@@ -1,16 +1,13 @@
 #pragma once
 
 #include "types.hpp"
-#include <algorithm>
 #include <array>
-#include <cstdint>
 #include <limits>
-
-// Force 1-byte alignment to avoid padding between chunks of data.
-#pragma pack(push, 1)
 
 namespace laspar
 {
+// Force 1-byte alignment to avoid padding between chunks of data.
+#pragma pack(push, 1)
 
 // Byte layout of the LAS 1.4 Public Header Block as defined here:
 // https://paulbourke.net/dataformats/laz/LAS_1_4_r15.pdf (p.8).
