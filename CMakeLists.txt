@@ -23,6 +23,7 @@ add_executable(las_parser src/main.cpp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(las_parser PRIVATE
         -Wall -Wextra -Wpedantic
+        -fno-exceptions
         -march=native
         $<$<CONFIG:Release>:-O3 -ffast-math -flto>
         $<$<CONFIG:Debug>:-O0 -g3>

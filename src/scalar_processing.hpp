@@ -5,7 +5,7 @@
 namespace laspar
 {
 
-inline BoundingBox compute_bounding_box_scalar(const u8* file_data, const HeaderView& view) noexcept
+inline BoundingBox compute_bounding_box_scalar(const u8* file_data, const HeaderView& view)
 {
     BoundingBox bbox;
 

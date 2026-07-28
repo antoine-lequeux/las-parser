@@ -6,7 +6,7 @@
 namespace laspar
 {
 // Get the smallest double out of 4.
-inline double hmin_pd(__m256d v) noexcept
+inline double hmin_pd(__m256d v)
 {
     __m256d perm = _mm256_permute2f128_pd(v, v, 1);
     __m256d min1 = _mm256_min_pd(v, perm);
@@ -16,7 +16,7 @@ inline double hmin_pd(__m256d v) noexcept
 }
 
 // Get the largest double out of 4.
-inline double hmax_pd(__m256d v) noexcept
+inline double hmax_pd(__m256d v)
 {
     __m256d perm = _mm256_permute2f128_pd(v, v, 1);
     __m256d max1 = _mm256_max_pd(v, perm);
@@ -25,7 +25,7 @@ inline double hmax_pd(__m256d v) noexcept
     return _mm256_cvtsd_f64(max2);
 }
 
-inline BoundingBox compute_bounding_box_avx2(const u8* file_data, const HeaderView& view) noexcept
+inline BoundingBox compute_bounding_box_avx2(const u8* file_data, const HeaderView& view)
 {
     // Store the scale values into 256-bit registers holding 4 doubles each.
     const __m256d x_scale = _mm256_set1_pd(view.header->x_scale_factor);

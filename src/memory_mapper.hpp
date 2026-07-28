@@ -14,7 +14,7 @@ class MemoryMappedFile
 {
 public:
 
-    static std::expected<MemoryMappedFile, std::string> open(const std::filesystem::path& filepath) noexcept
+    static std::expected<MemoryMappedFile, std::string> open(const std::filesystem::path& filepath)
     {
         std::error_code ec;
         usize size = std::filesystem::file_size(filepath, ec);
@@ -46,8 +46,8 @@ public:
         return MemoryMappedFile(mapped_data, size, file_handle, mapping_handle);
     }
 
-    [[nodiscard]] const u8* data() const noexcept { return m_mapped_data; }
-    [[nodiscard]] usize size() const noexcept { return m_file_size; }
+    [[nodiscard]] const u8* data() const { return m_mapped_data; }
+    [[nodiscard]] usize size() const { return m_file_size; }
 
     MemoryMappedFile(const MemoryMappedFile&) = delete;
     MemoryMappedFile& operator=(const MemoryMappedFile&) = delete;
@@ -90,7 +90,7 @@ private:
     {
     }
 
-    void cleanup() noexcept
+    void cleanup()
     {
         if (m_mapped_data) UnmapViewOfFile(m_mapped_data);
         if (m_mapping_handle) CloseHandle(m_mapping_handle);

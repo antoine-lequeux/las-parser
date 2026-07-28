@@ -11,8 +11,7 @@ namespace laspar
 {
 
 template <typename Func>
-inline std::pair<double, BoundingBox>
-benchmark(Func&& compute_func, const char* name, u64 point_count, u32 stride) noexcept
+inline std::pair<double, BoundingBox> benchmark(Func&& compute_func, const char* name, u64 point_count, u32 stride)
 {
     auto start = std::chrono::high_resolution_clock::now();
     BoundingBox bbox = compute_func();
@@ -28,7 +27,7 @@ benchmark(Func&& compute_func, const char* name, u64 point_count, u32 stride) no
     return {seconds, bbox};
 }
 
-inline void run_benchmark(const HeaderView& view, const u8* data) noexcept
+inline void run_benchmark(const HeaderView& view, const u8* data)
 {
     std::println("Benchmarking {} points...", view.point_count);
     std::println("-------------------------------------------------------");
