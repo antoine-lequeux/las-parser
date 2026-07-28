@@ -22,6 +22,7 @@ add_executable(las_parser
     src/memory_mapper.hpp
     src/types.hpp
     src/header_view.hpp
+    src/scalar_processing.hpp
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

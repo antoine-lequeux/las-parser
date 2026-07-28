@@ -1,7 +1,10 @@
 #pragma once
 
 #include "types.hpp"
+#include <algorithm>
 #include <array>
+#include <cstdint>
+#include <limits>
 
 // Force 1-byte alignment to avoid padding between chunks of data.
 #pragma pack(push, 1)
@@ -78,6 +81,25 @@ struct PointRecord0
 
 static_assert(sizeof(PointRecord0) == 20, "PointRecord0 size must be exactly 20 bytes.");
 
-} // namespace laspar
+struct LasPointCoordinates
+{
+    i32 x;
+    i32 y;
+    i32 z;
+};
 
 #pragma pack(pop)
+
+struct BoundingBox
+{
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = std::numeric_limits<double>::lowest();
+
+    double min_y = std::numeric_limits<double>::max();
+    double max_y = std::numeric_limits<double>::lowest();
+
+    double min_z = std::numeric_limits<double>::max();
+    double max_z = std::numeric_limits<double>::lowest();
+};
+
+} // namespace laspar
