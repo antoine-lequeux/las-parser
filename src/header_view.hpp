@@ -1,3 +1,5 @@
+#pragma once
+
 #include "las_data.hpp"
 #include <cstdint>
 #include <expected>
