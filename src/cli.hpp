@@ -10,8 +10,102 @@
 #include "header_view.hpp"
 #include "memory_mapper.hpp"
 
+template <>
+struct std::formatter<lyra::cli> : std::formatter<std::string_view>
+{
+    auto format(const lyra::cli& cli, std::format_context& ctx) const
+    {
+        std::ostringstream ss;
+        ss << cli;
+        return std::formatter<std::string_view>::format(ss.str(), ctx);
+    }
+};
+
 namespace laspar
 {
+
+// The classification for all point formats is defined here:
+// https://paulbourke.net/dataformats/laz/LAS_1_4_r15.pdf (p.19 & p.30).
+inline const char* get_asprs_class_name(u8 format_id, i32 class_id)
+{
+    // Common classes.
+    switch (class_id)
+    {
+        case 0: return "Created, Never Classified";
+        case 1: return "Unclassified";
+        case 2: return "Ground";
+        case 3: return "Low Vegetation";
+        case 4: return "Medium Vegetation";
+        case 5: return "High Vegetation";
+        case 6: return "Building";
+        case 7: return "Low Point (Noise)";
+        case 9: return "Water";
+    }
+
+    // Classes for formats 0 to 5.
+    if (format_id <= 5)
+    {
+        switch (class_id)
+        {
+            case 8: return "Model Key-Point (Mass Point)";
+            case 12: return "Overlap Points";
+            default: return "Reserved for ASPRS Def.";
+        }
+    }
+    // Classes for formats 6 to 10.
+    else
+    {
+        switch (class_id)
+        {
+            case 8: return "Reserved";
+            case 10: return "Rail";
+            case 11: return "Road Surface";
+            case 12: return "Reserved";
+            case 13: return "Wire - Guard (Shield)";
+            case 14: return "Wire - Conductor (Phase)";
+            case 15: return "Transmission Tower";
+            case 16: return "Wire-Structure Connector";
+            case 17: return "Bridge Deck";
+            case 18: return "High Noise";
+            case 19: return "Overhead Structure";
+            case 20: return "Ignored Ground";
+            case 21: return "Snow";
+            case 22: return "Temporal Exclusion";
+            default:
+                if (class_id >= 64 && class_id <= 255) return "User Definable";
+                return "Reserved";
+        }
+    }
+}
+
+inline void print_histogram(const std::vector<u64>& class_counts, u8 format_id, u16 max_bar_width = 100)
+{
+    u64 max_count = 0;
+    for (u64 count : class_counts) max_count = std::max(max_count, count);
+    if (max_count == 0) return;
+
+    std::println("Classification report:");
+
+    for (usize i = 0; i < class_counts.size(); ++i)
+    {
+        if (class_counts[i] == 0) continue;
+
+        double ratio = static_cast<double>(class_counts[i]) / max_count;
+        i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
+        if (bar_width == 0) bar_width = 1;
+
+        std::string bar(bar_width, '#');
+
+        i32 space_count = std::max(0, static_cast<i32>(max_bar_width + 1) - bar_width);
+        std::string padding(space_count, ' ');
+
+        std::println(
+            "  {:<6} {:28} | {}{}{}", std::format("[C{}]", i), get_asprs_class_name(format_id, i), bar, padding,
+            class_counts[i]
+        );
+    }
+    std::println("");
+}
 
 inline int launch_cli(int argc, const char** argv)
 {
@@ -20,11 +114,16 @@ inline int launch_cli(int argc, const char** argv)
     bool show_help = false;
     bool do_bbox = false;
     bool do_count = false;
+    u16 hist_width = 100;
 
-    auto cli = lyra::help(show_help) | lyra::arg(input_file, "input_file")("The LAS file to process").required() |
-               lyra::opt(keep_classes, "class")["-k"]["--keep-class"]("Filter by classification (can be chained)") |
-               lyra::opt(do_bbox)["-b"]["--bbox"]("Compute bounding box of filtered points") |
-               lyra::opt(do_count)["-c"]["--count"]("Count filtered points by class");
+    auto cli =
+        lyra::help(show_help) | lyra::arg(input_file, "input_file")("The LAS file to process").required() |
+        lyra::opt(keep_classes, "class")["-k"]["--keep-class"]("Filter by classification (can be chained)") |
+        lyra::opt(do_bbox)["-b"]["--bbox"]("Compute bounding box of filtered points") |
+        lyra::opt(do_count)["-c"]["--count"](
+            "Count filtered points by class; optionally set max histogram bar width (default: 100)"
+        ) |
+        lyra::opt(hist_width, "width")["-w"]["--hist-width"]("Max histogram bar width in characters (default: 100)");
 
     auto cli_result = cli.parse({argc, argv});
     if (!cli_result)
@@ -34,9 +133,7 @@ inline int launch_cli(int argc, const char** argv)
     }
     if (show_help)
     {
-        std::ostringstream oss;
-        oss << cli;
-        std::println("{}", oss.str());
+        std::println("\n{}", cli);
         return 0;
     }
 
@@ -158,12 +255,7 @@ inline int launch_cli(int argc, const char** argv)
         std::println("  Z: [{:<{}}, {:<{}}]\n", zs0, w0, zs1, w1);
     }
 
-    if (do_count && points_processed > 0)
-    {
-        std::println("Classification report:");
-        for (usize i = 0; i < class_counts.size(); ++i)
-            if (class_counts[i] > 0) std::println("  Class {:<3} -> {:>8} points", i, class_counts[i]);
-    }
+    if (do_count && points_processed > 0) print_histogram(class_counts, format_id, hist_width);
 
     return 0;
 }
