@@ -250,4 +250,14 @@ struct BoundingBox
     double max_z = std::numeric_limits<double>::lowest();
 };
 
+struct ProcessResult
+{
+    u64 points_processed = 0;
+
+    BoundingBox bbox;
+
+    double sum_z = 0.0;
+    double sum_z2 = 0.0;
+};
+
 } // namespace laspar

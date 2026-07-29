@@ -27,13 +27,26 @@ inline double hmax_pd(__m256d v)
     return _mm256_cvtsd_f64(max2);
 }
 
-template <bool HasFilter, bool DoCount>
-inline BoundingBox compute_bounding_box_avx2(
+// Get the sum of all 4 doubles.
+inline double hsum_pd(__m256d v)
+{
+    __m128d lo = _mm256_extractf128_pd(v, 0);
+    __m128d hi = _mm256_extractf128_pd(v, 1);
+    __m128d sum1 = _mm_add_pd(lo, hi);
+    __m128d sum2 = _mm_add_pd(sum1, _mm_unpackhi_pd(sum1, sum1));
+    return _mm_cvtsd_f64(sum2);
+}
+
+// AVX2 point processing function to get all data required in the command line.
+template <bool HasFilter, bool DoCount, bool DoBBox, bool DoElev>
+inline ProcessResult process_points_avx2(
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
     const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
-    u64& out_points_processed, std::vector<u64>& out_class_counts
+    std::vector<u64>& out_class_counts
 )
 {
+    ProcessResult result {};
+
     // Store the scale values into 256-bit registers holding 4 doubles each.
     const __m256d x_scale = _mm256_set1_pd(view.header->x_scale_factor);
     const __m256d y_scale = _mm256_set1_pd(view.header->y_scale_factor);
@@ -44,20 +57,33 @@ inline BoundingBox compute_bounding_box_avx2(
     const __m256d y_offset = _mm256_set1_pd(view.header->y_offset);
     const __m256d z_offset = _mm256_set1_pd(view.header->z_offset);
 
-    __m256d min_x = _mm256_set1_pd(std::numeric_limits<double>::max());
-    __m256d max_x = _mm256_set1_pd(std::numeric_limits<double>::lowest());
-
-    __m256d min_y = min_x, max_y = max_x;
-    __m256d min_z = min_x, max_z = max_x;
-
+    __m256d min_x, max_x, min_y, max_y, min_z, max_z;
     const __m256d pos_inf = _mm256_set1_pd(std::numeric_limits<double>::max());
     const __m256d neg_inf = _mm256_set1_pd(std::numeric_limits<double>::lowest());
+
+    if constexpr (DoBBox)
+    {
+        min_x = pos_inf;
+        max_x = neg_inf;
+        min_y = pos_inf;
+        max_y = neg_inf;
+        min_z = pos_inf;
+        max_z = neg_inf;
+    }
+
+    __m256d sum_z_vec, sum_z2_vec, zero_pd;
+    if constexpr (DoElev)
+    {
+        sum_z_vec = _mm256_setzero_pd();
+        sum_z2_vec = _mm256_setzero_pd();
+        zero_pd = _mm256_setzero_pd();
+    }
 
     const u8* p = file_data + view.point_data_offset;
     const u32 stride = view.point_record_length;
 
     u64 i = 0;
-    u64 batch_limit = view.point_count - (view.point_count % 4);
+    const u64 batch_limit = view.point_count - (view.point_count % 4);
     u64 passed_count = 0;
 
     for (; i < batch_limit; i += 4)
@@ -93,22 +119,42 @@ inline BoundingBox compute_bounding_box_avx2(
 
                 __m256d blend = _mm256_set_pd(blend_mask[c3], blend_mask[c2], blend_mask[c1], blend_mask[c0]);
 
-                min_x = _mm256_min_pd(min_x, _mm256_blendv_pd(pos_inf, vx, blend));
-                max_x = _mm256_max_pd(max_x, _mm256_blendv_pd(neg_inf, vx, blend));
-                min_y = _mm256_min_pd(min_y, _mm256_blendv_pd(pos_inf, vy, blend));
-                max_y = _mm256_max_pd(max_y, _mm256_blendv_pd(neg_inf, vy, blend));
-                min_z = _mm256_min_pd(min_z, _mm256_blendv_pd(pos_inf, vz, blend));
-                max_z = _mm256_max_pd(max_z, _mm256_blendv_pd(neg_inf, vz, blend));
+                if constexpr (DoElev)
+                {
+                    __m256d vz_filtered = _mm256_blendv_pd(zero_pd, vz, blend);
+                    sum_z_vec = _mm256_add_pd(sum_z_vec, vz_filtered);
+                    sum_z2_vec = _mm256_fmadd_pd(vz_filtered, vz_filtered, sum_z2_vec);
+                }
+
+                if constexpr (DoBBox)
+                {
+                    min_x = _mm256_min_pd(min_x, _mm256_blendv_pd(pos_inf, vx, blend));
+                    max_x = _mm256_max_pd(max_x, _mm256_blendv_pd(neg_inf, vx, blend));
+                    min_y = _mm256_min_pd(min_y, _mm256_blendv_pd(pos_inf, vy, blend));
+                    max_y = _mm256_max_pd(max_y, _mm256_blendv_pd(neg_inf, vy, blend));
+                    min_z = _mm256_min_pd(min_z, _mm256_blendv_pd(pos_inf, vz, blend));
+                    max_z = _mm256_max_pd(max_z, _mm256_blendv_pd(neg_inf, vz, blend));
+                }
             }
             else
             {
                 passed_count += 4;
-                min_x = _mm256_min_pd(min_x, vx);
-                max_x = _mm256_max_pd(max_x, vx);
-                min_y = _mm256_min_pd(min_y, vy);
-                max_y = _mm256_max_pd(max_y, vy);
-                min_z = _mm256_min_pd(min_z, vz);
-                max_z = _mm256_max_pd(max_z, vz);
+
+                if constexpr (DoElev)
+                {
+                    sum_z_vec = _mm256_add_pd(sum_z_vec, vz);
+                    sum_z2_vec = _mm256_fmadd_pd(vz, vz, sum_z2_vec);
+                }
+
+                if constexpr (DoBBox)
+                {
+                    min_x = _mm256_min_pd(min_x, vx);
+                    max_x = _mm256_max_pd(max_x, vx);
+                    min_y = _mm256_min_pd(min_y, vy);
+                    max_y = _mm256_max_pd(max_y, vy);
+                    min_z = _mm256_min_pd(min_z, vz);
+                    max_z = _mm256_max_pd(max_z, vz);
+                }
             }
 
             if constexpr (DoCount)
@@ -132,26 +178,43 @@ inline BoundingBox compute_bounding_box_avx2(
         else
         {
             passed_count += 4;
-            min_x = _mm256_min_pd(min_x, vx);
-            max_x = _mm256_max_pd(max_x, vx);
-            min_y = _mm256_min_pd(min_y, vy);
-            max_y = _mm256_max_pd(max_y, vy);
-            min_z = _mm256_min_pd(min_z, vz);
-            max_z = _mm256_max_pd(max_z, vz);
+
+            if constexpr (DoElev)
+            {
+                sum_z_vec = _mm256_add_pd(sum_z_vec, vz);
+                sum_z2_vec = _mm256_fmadd_pd(vz, vz, sum_z2_vec);
+            }
+
+            if constexpr (DoBBox)
+            {
+                min_x = _mm256_min_pd(min_x, vx);
+                max_x = _mm256_max_pd(max_x, vx);
+                min_y = _mm256_min_pd(min_y, vy);
+                max_y = _mm256_max_pd(max_y, vy);
+                min_z = _mm256_min_pd(min_z, vz);
+                max_z = _mm256_max_pd(max_z, vz);
+            }
         }
 
-        // Jump 4 points.
         p += stride * 4;
     }
 
-    // Get the smallest/largest double from each track (scalar reduction).
-    BoundingBox bbox;
-    bbox.min_x = hmin_pd(min_x);
-    bbox.max_x = hmax_pd(max_x);
-    bbox.min_y = hmin_pd(min_y);
-    bbox.max_y = hmax_pd(max_y);
-    bbox.min_z = hmin_pd(min_z);
-    bbox.max_z = hmax_pd(max_z);
+    // Horizontal reduction of SIMD accumulators.
+    if constexpr (DoElev)
+    {
+        result.sum_z = hsum_pd(sum_z_vec);
+        result.sum_z2 = hsum_pd(sum_z2_vec);
+    }
+
+    if constexpr (DoBBox)
+    {
+        result.bbox.min_x = hmin_pd(min_x);
+        result.bbox.max_x = hmax_pd(max_x);
+        result.bbox.min_y = hmin_pd(min_y);
+        result.bbox.max_y = hmax_pd(max_y);
+        result.bbox.min_z = hmin_pd(min_z);
+        result.bbox.max_z = hmax_pd(max_z);
+    }
 
     // Process the remaining points using scalar math.
     for (; i < view.point_count; ++i)
@@ -172,21 +235,60 @@ inline BoundingBox compute_bounding_box_avx2(
         passed_count++;
 
         const auto* pt = reinterpret_cast<const LasPointCoordinates*>(p);
-        double x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
-        double y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
-        double z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
+        const double x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
+        const double y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
+        const double z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
 
-        bbox.min_x = std::min(bbox.min_x, x);
-        bbox.max_x = std::max(bbox.max_x, x);
-        bbox.min_y = std::min(bbox.min_y, y);
-        bbox.max_y = std::max(bbox.max_y, y);
-        bbox.min_z = std::min(bbox.min_z, z);
-        bbox.max_z = std::max(bbox.max_z, z);
+        if constexpr (DoElev)
+        {
+            result.sum_z += z;
+            result.sum_z2 += z * z;
+        }
+
+        if constexpr (DoBBox)
+        {
+            result.bbox.min_x = std::min(result.bbox.min_x, x);
+            result.bbox.max_x = std::max(result.bbox.max_x, x);
+            result.bbox.min_y = std::min(result.bbox.min_y, y);
+            result.bbox.max_y = std::max(result.bbox.max_y, y);
+            result.bbox.min_z = std::min(result.bbox.min_z, z);
+            result.bbox.max_z = std::max(result.bbox.max_z, z);
+        }
 
         p += stride;
     }
 
-    out_points_processed = passed_count;
-    return bbox;
+    result.points_processed = passed_count;
+    return result;
 }
+
+template <bool... Bools, typename Fn, typename... Rest>
+decltype(auto) dispatch_bools(Fn&& fn, bool current, Rest... rest)
+{
+    if (current)
+        if constexpr (sizeof...(rest) == 0)
+            return fn.template operator()<Bools..., true>();
+        else
+            return dispatch_bools<Bools..., true>(std::forward<Fn>(fn), rest...);
+    else if constexpr (sizeof...(rest) == 0)
+        return fn.template operator()<Bools..., false>();
+    else
+        return dispatch_bools<Bools..., false>(std::forward<Fn>(fn), rest...);
+}
+
+inline ProcessResult dispatch_avx2(
+    bool has_filter, bool do_count, bool do_bbox, bool do_elev, const u8* file_data, const HeaderView& view,
+    const std::array<u8, 256>& filter_mask, const std::array<double, 256>& blend_mask, u32 classification_offset,
+    u8 classification_byte_mask, std::vector<u64>& out_class_counts
+)
+{
+    auto runner = [&]<bool HF, bool DC, bool DB, bool DE>() {
+        return process_points_avx2<HF, DC, DB, DE>(
+            file_data, view, filter_mask, blend_mask, classification_offset, classification_byte_mask, out_class_counts
+        );
+    };
+
+    return dispatch_bools(runner, has_filter, do_count, do_bbox, do_elev);
+}
+
 } // namespace laspar
