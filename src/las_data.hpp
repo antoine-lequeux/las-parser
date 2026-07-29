@@ -98,28 +98,53 @@ struct LasWavePacket
 struct LasPointFormat0
 {
     LasPointBase base;
+
+    [[nodiscard]] i32 get_x() const { return base.x; }
+    [[nodiscard]] i32 get_y() const { return base.y; }
+    [[nodiscard]] i32 get_z() const { return base.z; }
+    [[nodiscard]] u8 get_classification() const { return base.classification & 0x1F; }
 };
 struct LasPointFormat1
 {
     LasPointBase base;
     double gps_time;
+
+    [[nodiscard]] i32 get_x() const { return base.x; }
+    [[nodiscard]] i32 get_y() const { return base.y; }
+    [[nodiscard]] i32 get_z() const { return base.z; }
+    [[nodiscard]] u8 get_classification() const { return base.classification & 0x1F; }
 };
 struct LasPointFormat2
 {
     LasPointBase base;
     LasColor color;
+
+    [[nodiscard]] i32 get_x() const { return base.x; }
+    [[nodiscard]] i32 get_y() const { return base.y; }
+    [[nodiscard]] i32 get_z() const { return base.z; }
+    [[nodiscard]] u8 get_classification() const { return base.classification & 0x1F; }
 };
 struct LasPointFormat3
 {
     LasPointBase base;
     double gps_time;
     LasColor color;
+
+    [[nodiscard]] i32 get_x() const { return base.x; }
+    [[nodiscard]] i32 get_y() const { return base.y; }
+    [[nodiscard]] i32 get_z() const { return base.z; }
+    [[nodiscard]] u8 get_classification() const { return base.classification & 0x1F; }
 };
 struct LasPointFormat4
 {
     LasPointBase base;
     double gps_time;
     LasWavePacket wave;
+
+    [[nodiscard]] i32 get_x() const { return base.x; }
+    [[nodiscard]] i32 get_y() const { return base.y; }
+    [[nodiscard]] i32 get_z() const { return base.z; }
+    [[nodiscard]] u8 get_classification() const { return base.classification & 0x1F; }
 };
 struct LasPointFormat5
 {
@@ -127,6 +152,11 @@ struct LasPointFormat5
     double gps_time;
     LasColor color;
     LasWavePacket wave;
+
+    [[nodiscard]] i32 get_x() const { return base.x; }
+    [[nodiscard]] i32 get_y() const { return base.y; }
+    [[nodiscard]] i32 get_z() const { return base.z; }
+    [[nodiscard]] u8 get_classification() const { return base.classification & 0x1F; }
 };
 
 // Shared by formats 6 to 10.
@@ -149,22 +179,42 @@ static_assert(sizeof(LasPointBaseModern) == 30, "LasPointBaseModern must be exac
 struct LasPointFormat6
 {
     LasPointBaseModern base_modern;
+
+    [[nodiscard]] i32 get_x() const { return base_modern.x; }
+    [[nodiscard]] i32 get_y() const { return base_modern.y; }
+    [[nodiscard]] i32 get_z() const { return base_modern.z; }
+    [[nodiscard]] u8 get_classification() const { return base_modern.classification; }
 };
 struct LasPointFormat7
 {
     LasPointBaseModern base_modern;
     LasColor color;
+
+    [[nodiscard]] i32 get_x() const { return base_modern.x; }
+    [[nodiscard]] i32 get_y() const { return base_modern.y; }
+    [[nodiscard]] i32 get_z() const { return base_modern.z; }
+    [[nodiscard]] u8 get_classification() const { return base_modern.classification; }
 };
 struct LasPointFormat8
 {
     LasPointBaseModern base_modern;
     LasColor color;
     u16 nir;
+
+    [[nodiscard]] i32 get_x() const { return base_modern.x; }
+    [[nodiscard]] i32 get_y() const { return base_modern.y; }
+    [[nodiscard]] i32 get_z() const { return base_modern.z; }
+    [[nodiscard]] u8 get_classification() const { return base_modern.classification; }
 };
 struct LasPointFormat9
 {
     LasPointBaseModern base_modern;
     LasWavePacket wave;
+
+    [[nodiscard]] i32 get_x() const { return base_modern.x; }
+    [[nodiscard]] i32 get_y() const { return base_modern.y; }
+    [[nodiscard]] i32 get_z() const { return base_modern.z; }
+    [[nodiscard]] u8 get_classification() const { return base_modern.classification; }
 };
 struct LasPointFormat10
 {
@@ -172,6 +222,11 @@ struct LasPointFormat10
     LasColor color;
     u16 nir;
     LasWavePacket wave;
+
+    [[nodiscard]] i32 get_x() const { return base_modern.x; }
+    [[nodiscard]] i32 get_y() const { return base_modern.y; }
+    [[nodiscard]] i32 get_z() const { return base_modern.z; }
+    [[nodiscard]] u8 get_classification() const { return base_modern.classification; }
 };
 
 struct LasPointCoordinates

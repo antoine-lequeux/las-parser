@@ -9,14 +9,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 FetchContent_Declare(
-    CLI11
-    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG v2.6.2
+    lyra
+    GIT_REPOSITORY https://github.com/bfgroup/Lyra.git
+    GIT_TAG        1.8.0
 )
-set(CLI11_BUILD_TESTS OFF CACHE INTERNAL "")
-set(CLI11_BUILD_EXAMPLES OFF CACHE INTERNAL "")
-set(CLI11_BUILD_DOCS OFF CACHE INTERNAL "")
-FetchContent_MakeAvailable(CLI11)
+FetchContent_MakeAvailable(lyra)
 
 add_executable(las_parser src/main.cpp)
 
@@ -30,4 +27,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     )
 endif()
 
-target_link_libraries(las_parser PRIVATE CLI11::CLI11)
+target_link_libraries(las_parser PRIVATE bfg::lyra)

@@ -1,7 +1,9 @@
 #pragma once
 #include "header_view.hpp"
 #include "las_data.hpp"
+#include <array>
 #include <immintrin.h>
+#include <vector>
 
 namespace laspar
 {
@@ -25,7 +27,12 @@ inline double hmax_pd(__m256d v)
     return _mm256_cvtsd_f64(max2);
 }
 
-inline BoundingBox compute_bounding_box_avx2(const u8* file_data, const HeaderView& view)
+template <bool HasFilter, bool DoCount>
+inline BoundingBox compute_bounding_box_avx2(
+    const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
+    const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
+    u64& out_points_processed, std::vector<u64>& out_class_counts
+)
 {
     // Store the scale values into 256-bit registers holding 4 doubles each.
     const __m256d x_scale = _mm256_set1_pd(view.header->x_scale_factor);
@@ -43,49 +50,101 @@ inline BoundingBox compute_bounding_box_avx2(const u8* file_data, const HeaderVi
     __m256d min_y = min_x, max_y = max_x;
     __m256d min_z = min_x, max_z = max_x;
 
+    const __m256d pos_inf = _mm256_set1_pd(std::numeric_limits<double>::max());
+    const __m256d neg_inf = _mm256_set1_pd(std::numeric_limits<double>::lowest());
+
     const u8* p = file_data + view.point_data_offset;
     const u32 stride = view.point_record_length;
 
     u64 i = 0;
     u64 batch_limit = view.point_count - (view.point_count % 4);
+    u64 passed_count = 0;
 
     for (; i < batch_limit; i += 4)
     {
-        // Calculate pointers for the 4 points.
-        const auto* pt0 = reinterpret_cast<const LasPointCoordinates*>(p);
-        const auto* pt1 = reinterpret_cast<const LasPointCoordinates*>(p + stride);
-        const auto* pt2 = reinterpret_cast<const LasPointCoordinates*>(p + stride * 2);
-        const auto* pt3 = reinterpret_cast<const LasPointCoordinates*>(p + stride * 3);
+        __m128i pt0_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p));
+        __m128i pt1_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p + stride));
+        __m128i pt2_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p + stride * 2));
+        __m128i pt3_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p + stride * 3));
 
-        // Load 4 ints into a 128-bit register.
-        __m128i vx_int = _mm_set_epi32(pt3->x, pt2->x, pt1->x, pt0->x);
-        __m128i vy_int = _mm_set_epi32(pt3->y, pt2->y, pt1->y, pt0->y);
-        __m128i vz_int = _mm_set_epi32(pt3->z, pt2->z, pt1->z, pt0->z);
+        __m128i tmp0 = _mm_unpacklo_epi32(pt0_vec, pt1_vec);
+        __m128i tmp1 = _mm_unpackhi_epi32(pt0_vec, pt1_vec);
+        __m128i tmp2 = _mm_unpacklo_epi32(pt2_vec, pt3_vec);
+        __m128i tmp3 = _mm_unpackhi_epi32(pt2_vec, pt3_vec);
 
-        // Convert the 32-bit ints to 64-bit doubles.
-        __m256d vx = _mm256_cvtepi32_pd(vx_int);
-        __m256d vy = _mm256_cvtepi32_pd(vy_int);
-        __m256d vz = _mm256_cvtepi32_pd(vz_int);
+        __m128i vx_int = _mm_unpacklo_epi64(tmp0, tmp2);
+        __m128i vy_int = _mm_unpackhi_epi64(tmp0, tmp2);
+        __m128i vz_int = _mm_unpacklo_epi64(tmp1, tmp3);
 
-        // Compute vx = vx * x_scale + x_offset
-        vx = _mm256_fmadd_pd(vx, x_scale, x_offset);
-        vy = _mm256_fmadd_pd(vy, y_scale, y_offset);
-        vz = _mm256_fmadd_pd(vz, z_scale, z_offset);
+        __m256d vx = _mm256_fmadd_pd(_mm256_cvtepi32_pd(vx_int), x_scale, x_offset);
+        __m256d vy = _mm256_fmadd_pd(_mm256_cvtepi32_pd(vy_int), y_scale, y_offset);
+        __m256d vz = _mm256_fmadd_pd(_mm256_cvtepi32_pd(vz_int), z_scale, z_offset);
 
-        min_x = _mm256_min_pd(min_x, vx);
-        max_x = _mm256_max_pd(max_x, vx);
+        if constexpr (HasFilter || DoCount)
+        {
+            u8 c0 = p[classification_offset] & classification_byte_mask;
+            u8 c1 = p[stride + classification_offset] & classification_byte_mask;
+            u8 c2 = p[stride * 2 + classification_offset] & classification_byte_mask;
+            u8 c3 = p[stride * 3 + classification_offset] & classification_byte_mask;
 
-        min_y = _mm256_min_pd(min_y, vy);
-        max_y = _mm256_max_pd(max_y, vy);
+            if constexpr (HasFilter)
+            {
+                passed_count += filter_mask[c0] + filter_mask[c1] + filter_mask[c2] + filter_mask[c3];
 
-        min_z = _mm256_min_pd(min_z, vz);
-        max_z = _mm256_max_pd(max_z, vz);
+                __m256d blend = _mm256_set_pd(blend_mask[c3], blend_mask[c2], blend_mask[c1], blend_mask[c0]);
+
+                min_x = _mm256_min_pd(min_x, _mm256_blendv_pd(pos_inf, vx, blend));
+                max_x = _mm256_max_pd(max_x, _mm256_blendv_pd(neg_inf, vx, blend));
+                min_y = _mm256_min_pd(min_y, _mm256_blendv_pd(pos_inf, vy, blend));
+                max_y = _mm256_max_pd(max_y, _mm256_blendv_pd(neg_inf, vy, blend));
+                min_z = _mm256_min_pd(min_z, _mm256_blendv_pd(pos_inf, vz, blend));
+                max_z = _mm256_max_pd(max_z, _mm256_blendv_pd(neg_inf, vz, blend));
+            }
+            else
+            {
+                passed_count += 4;
+                min_x = _mm256_min_pd(min_x, vx);
+                max_x = _mm256_max_pd(max_x, vx);
+                min_y = _mm256_min_pd(min_y, vy);
+                max_y = _mm256_max_pd(max_y, vy);
+                min_z = _mm256_min_pd(min_z, vz);
+                max_z = _mm256_max_pd(max_z, vz);
+            }
+
+            if constexpr (DoCount)
+            {
+                if constexpr (HasFilter)
+                {
+                    if (filter_mask[c0]) out_class_counts[c0]++;
+                    if (filter_mask[c1]) out_class_counts[c1]++;
+                    if (filter_mask[c2]) out_class_counts[c2]++;
+                    if (filter_mask[c3]) out_class_counts[c3]++;
+                }
+                else
+                {
+                    out_class_counts[c0]++;
+                    out_class_counts[c1]++;
+                    out_class_counts[c2]++;
+                    out_class_counts[c3]++;
+                }
+            }
+        }
+        else
+        {
+            passed_count += 4;
+            min_x = _mm256_min_pd(min_x, vx);
+            max_x = _mm256_max_pd(max_x, vx);
+            min_y = _mm256_min_pd(min_y, vy);
+            max_y = _mm256_max_pd(max_y, vy);
+            min_z = _mm256_min_pd(min_z, vz);
+            max_z = _mm256_max_pd(max_z, vz);
+        }
 
         // Jump 4 points.
         p += stride * 4;
     }
 
-    // Get the smallest/largest double from each track.
+    // Get the smallest/largest double from each track (scalar reduction).
     BoundingBox bbox;
     bbox.min_x = hmin_pd(min_x);
     bbox.max_x = hmax_pd(max_x);
@@ -97,8 +156,22 @@ inline BoundingBox compute_bounding_box_avx2(const u8* file_data, const HeaderVi
     // Process the remaining points using scalar math.
     for (; i < view.point_count; ++i)
     {
-        const auto* pt = reinterpret_cast<const LasPointCoordinates*>(p);
+        if constexpr (HasFilter || DoCount)
+        {
+            u8 c = p[classification_offset] & classification_byte_mask;
+            if constexpr (HasFilter)
+            {
+                if (!filter_mask[c])
+                {
+                    p += stride;
+                    continue;
+                }
+            }
+            if constexpr (DoCount) out_class_counts[c]++;
+        }
+        passed_count++;
 
+        const auto* pt = reinterpret_cast<const LasPointCoordinates*>(p);
         double x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
         double y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
         double z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
@@ -113,6 +186,7 @@ inline BoundingBox compute_bounding_box_avx2(const u8* file_data, const HeaderVi
         p += stride;
     }
 
+    out_points_processed = passed_count;
     return bbox;
 }
 } // namespace laspar
