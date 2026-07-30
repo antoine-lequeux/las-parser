@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <lyra/lyra.hpp>
+#include <optional>
 #include <print>
 #include <sstream>
 #include <vector>
@@ -133,16 +134,16 @@ inline void print_elev_histogram(
         std::println("  {:>16} | {}{}{}", label, bar, padding, count);
     };
 
-    if (underflow_count > 0) print_bar(std::format("< {:.1f} ", hist_min), underflow_count);
+    if (underflow_count > 0) print_bar(std::format("< {:.2f} ", hist_min), underflow_count);
 
     for (i32 i = 0; i < num_bins; i++)
     {
         double bin_lo = hist_min + (i * bin_step);
         double bin_hi = bin_lo + bin_step;
-        print_bar(std::format("[{:.1f}, {:.1f}]", bin_lo, bin_hi), z_bins[i]);
+        print_bar(std::format("[{:.2f}, {:.2f}]", bin_lo, bin_hi), z_bins[i]);
     }
 
-    if (overflow_count > 0) print_bar(std::format("> {:.1f} ", hist_max), overflow_count);
+    if (overflow_count > 0) print_bar(std::format("> {:.2f} ", hist_max), overflow_count);
 
     std::println("");
 }
@@ -151,6 +152,7 @@ inline int launch_cli(int argc, const char** argv)
 {
     std::string input_file;
     std::vector<int> keep_classes;
+    std::optional<double> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
     bool show_help = false;
     bool do_bbox = false;
     bool do_count = false;
@@ -161,6 +163,12 @@ inline int launch_cli(int argc, const char** argv)
     auto cli =
         lyra::help(show_help) | lyra::arg(input_file, "input_file")("The LAS file to process").required() |
         lyra::opt(keep_classes, "class")["-k"]["--keep-class"]("Filter by classification (can be chained)") |
+        lyra::opt(opt_xmin, "value")["--xmin"]("Filter points with X >= value") |
+        lyra::opt(opt_xmax, "value")["--xmax"]("Filter points with X <= value") |
+        lyra::opt(opt_ymin, "value")["--ymin"]("Filter points with Y >= value") |
+        lyra::opt(opt_ymax, "value")["--ymax"]("Filter points with Y <= value") |
+        lyra::opt(opt_zmin, "value")["--zmin"]("Filter points with Z >= value") |
+        lyra::opt(opt_zmax, "value")["--zmax"]("Filter points with Z <= value") |
         lyra::opt(do_bbox)["-b"]["--bbox"]("Compute bounding box of filtered points") |
         lyra::opt(do_count)["-c"]["--count"](
             "Show histogram of filtered points by class; optionally set max histogram bar width (default: 100)"
@@ -189,8 +197,18 @@ inline int launch_cli(int argc, const char** argv)
     std::array<double, 256> blend_mask = {0.0};
     const double lane_pass = std::bit_cast<double>(~u64 {0});
 
-    const bool has_filter = !keep_classes.empty();
-    if (has_filter)
+    const bool has_class_filter = !keep_classes.empty();
+    const bool has_coord_filter = opt_xmin.has_value() || opt_xmax.has_value() || opt_ymin.has_value() ||
+                                  opt_ymax.has_value() || opt_zmin.has_value() || opt_zmax.has_value();
+
+    const double filter_xmin = opt_xmin.value_or(std::numeric_limits<double>::lowest());
+    const double filter_xmax = opt_xmax.value_or(std::numeric_limits<double>::max());
+    const double filter_ymin = opt_ymin.value_or(std::numeric_limits<double>::lowest());
+    const double filter_ymax = opt_ymax.value_or(std::numeric_limits<double>::max());
+    const double filter_zmin = opt_zmin.value_or(std::numeric_limits<double>::lowest());
+    const double filter_zmax = opt_zmax.value_or(std::numeric_limits<double>::max());
+
+    if (has_class_filter)
     {
         for (i32 c : keep_classes)
         {
@@ -246,8 +264,9 @@ inline int launch_cli(int argc, const char** argv)
     auto start = std::chrono::high_resolution_clock::now();
 
     ProcessResult pr = dispatch_avx2(
-        has_filter, do_count, do_bbox, do_elev, file_result->data(), view, filter_mask, blend_mask,
-        classification_offset, classification_mask, class_counts
+        has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, file_result->data(), view, filter_mask,
+        blend_mask, classification_offset, classification_mask, class_counts, filter_xmin, filter_xmax, filter_ymin,
+        filter_ymax, filter_zmin, filter_zmax
     );
 
     const u64 points_processed = pr.points_processed;
@@ -275,6 +294,7 @@ inline int launch_cli(int argc, const char** argv)
 
     if (do_elev && points_processed > 0)
     {
+        auto start1 = std::chrono::high_resolution_clock::now();
         const double n = static_cast<double>(points_processed);
         const double mean = pr.sum_z / n;
         const double mean_sq = pr.sum_z2 / n;
@@ -292,32 +312,16 @@ inline int launch_cli(int argc, const char** argv)
         const double range = (hist_max > hist_min) ? hist_max - hist_min : 1.0;
         const double bin_step = range / nb_bins;
 
-        const u8* p2 = file_result->data() + view.point_data_offset;
-        for (u64 i = 0; i < view.point_count; ++i)
-        {
-            if (has_filter)
-            {
-                const u8 c = p2[classification_offset] & classification_mask;
-                if (!filter_mask[c])
-                {
-                    p2 += view.point_record_length;
-                    continue;
-                }
-            }
-            const auto* pt = reinterpret_cast<const LasPointCoordinates*>(p2);
-            const double z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
+        dispatch_histogram_avx2(
+            has_class_filter, has_coord_filter, file_result->data(), view, filter_mask, blend_mask,
+            classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin,
+            filter_zmax, hist_min, hist_max, bin_step, nb_bins, z_bins, underflow_count, overflow_count
+        );
 
-            if (z < hist_min)
-                ++underflow_count;
-            else if (z >= hist_max)
-                ++overflow_count;
-            else
-            {
-                i32 bin = static_cast<i32>((z - hist_min) / bin_step);
-                z_bins[std::min(bin, nb_bins - 1)]++;
-            }
-            p2 += view.point_record_length;
-        }
+        auto end1 = std::chrono::high_resolution_clock::now();
+        double seconds1 = std::chrono::duration<double>(end1 - start1).count();
+
+        std::println("Computed histogram in {:.4f} sec", seconds1);
 
         print_elev_histogram(z_bins, underflow_count, overflow_count, mean, std_dev, hist_min, hist_max, hist_width);
     }
