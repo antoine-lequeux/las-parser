@@ -95,15 +95,9 @@ inline void print_class_histogram(const std::vector<u64>& class_counts, u8 forma
         i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
         if (bar_width == 0) bar_width = 1;
 
-        std::string bar(bar_width, '#');
-
-        i32 space_count = std::max(0, static_cast<i32>(max_bar_width + 1) - bar_width);
-        std::string padding(space_count, ' ');
-
-        std::println(
-            "  {:<6} {:28} | {}{}{}", std::format("[C{}]", i), get_asprs_class_name(format_id, i), bar, padding,
-            class_counts[i]
-        );
+        std::print("  {:<6} {:28} | ", std::format("[C{}]", i), get_asprs_class_name(format_id, i));
+        for (i32 b = 0; b < bar_width; ++b) std::print("█");
+        std::println(" {:L}", class_counts[i]);
     }
     std::println("");
 }
@@ -127,11 +121,9 @@ inline void print_elev_histogram(
         i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
         if (count > 0 && bar_width == 0) bar_width = 1;
 
-        i32 space_count = std::max(0, static_cast<i32>(max_bar_width + 1) - bar_width);
-        std::string bar(bar_width, '#');
-        std::string padding(space_count, ' ');
-
-        std::println("  {:>16} | {}{}{}", label, bar, padding, count);
+        std::print("  {:>16} | ", label);
+        for (i32 b = 0; b < bar_width; ++b) std::print("█");
+        std::println(" {:L}", count);
     };
 
     if (underflow_count > 0) print_bar(std::format("< {:.2f} ", hist_min), underflow_count);
@@ -240,6 +232,14 @@ inline int launch_cli(int argc, const char** argv)
     }
     const auto& view = header_result.value();
 
+    struct TimingRecord
+    {
+        std::string description;
+        double seconds;
+        std::string suffix = "";
+    };
+    std::vector<TimingRecord> timings;
+
     {
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -251,8 +251,7 @@ inline int launch_cli(int argc, const char** argv)
         for (usize i = 0; i < size; i += page_size) (void)p1[i];
 
         auto end = std::chrono::high_resolution_clock::now();
-        double seconds = std::chrono::duration<double>(end - start).count();
-        std::println("Loaded file data in {:.4f} sec", seconds);
+        timings.push_back({"Pre-loaded file data in", std::chrono::duration<double>(end - start).count()});
     }
 
     const u8 format_id = view.header->point_data_record_format & 0x3Fu;
@@ -261,72 +260,97 @@ inline int launch_cli(int argc, const char** argv)
 
     std::vector<u64> class_counts(256, 0);
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start_process = std::chrono::high_resolution_clock::now();
 
-    ProcessResult pr = dispatch_avx2(
-        has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, file_result->data(), view, filter_mask,
-        blend_mask, classification_offset, classification_mask, class_counts, filter_xmin, filter_xmax, filter_ymin,
-        filter_ymax, filter_zmin, filter_zmax
-    );
-
-    const u64 points_processed = pr.points_processed;
-
-    auto end = std::chrono::high_resolution_clock::now();
-    double seconds = std::chrono::duration<double>(end - start).count();
-
-    std::println("Processed {} points in {:.4f} sec\n", points_processed, seconds);
-
-    if (do_bbox && points_processed > 0)
+    if (do_elev || do_count || do_bbox)
     {
-        auto f = [](double v) { return std::format("{:.2f}", v); };
-        std::string xs0 = f(pr.bbox.min_x), xs1 = f(pr.bbox.max_x);
-        std::string ys0 = f(pr.bbox.min_y), ys1 = f(pr.bbox.max_y);
-        std::string zs0 = f(pr.bbox.min_z), zs1 = f(pr.bbox.max_z);
+        ProcessResult pr = dispatch_avx2(
+            has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, file_result->data(), view, filter_mask,
+            blend_mask, classification_offset, classification_mask, class_counts, filter_xmin, filter_xmax, filter_ymin,
+            filter_ymax, filter_zmin, filter_zmax
+        );
 
-        usize w0 = std::max({xs0.size(), ys0.size(), zs0.size()});
-        usize w1 = std::max({xs1.size(), ys1.size(), zs1.size()});
+        const u64 points_processed = pr.points_processed;
 
-        std::println("Bounding box:");
-        std::println("  X: [{:<{}}, {:<{}}]", xs0, w0, xs1, w1);
-        std::println("  Y: [{:<{}}, {:<{}}]", ys0, w0, ys1, w1);
-        std::println("  Z: [{:<{}}, {:<{}}]\n", zs0, w0, zs1, w1);
-    }
+        auto end_process = std::chrono::high_resolution_clock::now();
+        double process_seconds = std::chrono::duration<double>(end_process - start_process).count();
 
-    if (do_elev && points_processed > 0)
-    {
-        auto start1 = std::chrono::high_resolution_clock::now();
-        const double n = static_cast<double>(points_processed);
-        const double mean = pr.sum_z / n;
-        const double mean_sq = pr.sum_z2 / n;
-        const double variance = std::max(0.0, mean_sq - (mean * mean));
-        const double std_dev = std::sqrt(variance);
+        double mp_s = (view.point_count / 1'000'000.0) / process_seconds;
+        double gb_s = ((view.point_count * view.point_record_length) / 1'000'000'000.0) / process_seconds;
+        std::string process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
-        const double raw_min = mean - 3.0 * std_dev;
-        const double raw_max = mean + 3.0 * std_dev;
-        const double hist_min = raw_min;
-        const double hist_max = raw_max;
+        timings.push_back({std::format("Processed {} points in", points_processed), process_seconds, process_suffix});
 
         std::vector<u64> z_bins(nb_bins, 0);
         u64 underflow_count = 0, overflow_count = 0;
+        double elev_mean = 0, elev_std_dev = 0, hist_min = 0, hist_max = 0;
 
-        const double range = (hist_max > hist_min) ? hist_max - hist_min : 1.0;
-        const double bin_step = range / nb_bins;
+        if (do_elev && points_processed > 0)
+        {
+            auto start1 = std::chrono::high_resolution_clock::now();
+            const double n = static_cast<double>(points_processed);
+            elev_mean = pr.sum_z / n;
+            const double mean_sq = pr.sum_z2 / n;
+            const double variance = std::max(0.0, mean_sq - (elev_mean * elev_mean));
+            elev_std_dev = std::sqrt(variance);
 
-        dispatch_histogram_avx2(
-            has_class_filter, has_coord_filter, file_result->data(), view, filter_mask, blend_mask,
-            classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin,
-            filter_zmax, hist_min, hist_max, bin_step, nb_bins, z_bins, underflow_count, overflow_count
-        );
+            const double raw_min = elev_mean - 3.0 * elev_std_dev;
+            const double raw_max = elev_mean + 3.0 * elev_std_dev;
+            hist_min = raw_min;
+            hist_max = raw_max;
 
-        auto end1 = std::chrono::high_resolution_clock::now();
-        double seconds1 = std::chrono::duration<double>(end1 - start1).count();
+            const double range = (hist_max > hist_min) ? hist_max - hist_min : 1.0;
+            const double bin_step = range / nb_bins;
 
-        std::println("Computed histogram in {:.4f} sec", seconds1);
+            dispatch_histogram_avx2(
+                has_class_filter, has_coord_filter, file_result->data(), view, filter_mask, blend_mask,
+                classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax,
+                filter_zmin, filter_zmax, hist_min, hist_max, bin_step, nb_bins, z_bins, underflow_count, overflow_count
+            );
 
-        print_elev_histogram(z_bins, underflow_count, overflow_count, mean, std_dev, hist_min, hist_max, hist_width);
+            auto end1 = std::chrono::high_resolution_clock::now();
+            timings.push_back({"Computed elev. hist. in", std::chrono::duration<double>(end1 - start1).count()});
+        }
+
+        usize max_len = 0;
+        for (const auto& t : timings) max_len = std::max(max_len, t.description.size());
+
+        for (const auto& t : timings)
+        {
+            usize dashes = max_len - t.description.size() + 3;
+            std::println("{} {} {:.4f} sec{}", t.description, std::string(dashes, '-'), t.seconds, t.suffix);
+        }
+        std::println();
+
+        if (do_bbox && points_processed > 0)
+        {
+            auto f = [](double v) { return std::format("{:.2f}", v); };
+            std::string xs0 = f(pr.bbox.min_x), xs1 = f(pr.bbox.max_x);
+            std::string ys0 = f(pr.bbox.min_y), ys1 = f(pr.bbox.max_y);
+            std::string zs0 = f(pr.bbox.min_z), zs1 = f(pr.bbox.max_z);
+
+            usize w0 = std::max({xs0.size(), ys0.size(), zs0.size()});
+            usize w1 = std::max({xs1.size(), ys1.size(), zs1.size()});
+
+            std::println("Bounding box:");
+            std::println("  X: [{:<{}}, {:<{}}]", xs0, w0, xs1, w1);
+            std::println("  Y: [{:<{}}, {:<{}}]", ys0, w0, ys1, w1);
+            std::println("  Z: [{:<{}}, {:<{}}]\n", zs0, w0, zs1, w1);
+        }
+
+        if (do_elev && points_processed > 0)
+        {
+            print_elev_histogram(
+                z_bins, underflow_count, overflow_count, elev_mean, elev_std_dev, hist_min, hist_max, hist_width
+            );
+        }
+
+        if (do_count && points_processed > 0) print_class_histogram(class_counts, format_id, hist_width);
     }
-
-    if (do_count && points_processed > 0) print_class_histogram(class_counts, format_id, hist_width);
+    else
+    {
+        std::println("No work to do. Use '-b', '-e', or '-c' to perform operations on points.");
+    }
 
     return 0;
 }
