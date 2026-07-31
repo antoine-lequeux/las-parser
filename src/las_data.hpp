@@ -253,11 +253,15 @@ struct BoundingBox
 struct ProcessResult
 {
     u64 points_processed = 0;
+    u64 points_dropped = 0;
 
     BoundingBox bbox;
+    BoundingBox dropped_bbox;
 
     double sum_z = 0.0;
     double sum_z2 = 0.0;
+
+    double io_time_seconds = 0.0;
 };
 
 } // namespace laspar

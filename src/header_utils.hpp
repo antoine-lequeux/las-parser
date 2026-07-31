@@ -5,6 +5,7 @@
 #include <print>
 #include <string>
 #include <vector>
+#include <windows.h>
 
 namespace laspar
 {
@@ -28,19 +29,24 @@ inline bool is_leap_year(u16 year)
     return year % 4 == 0;
 }
 
+inline i32 get_days_in_month(u16 month, u16 year)
+{
+    i32 days_in_month[] = {31, is_leap_year(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    return days_in_month[month];
+}
+
 inline std::string format_date(u16 day_of_year, u16 year)
 {
     if (day_of_year == 0 || year == 0) return "Unknown";
 
-    bool leap = is_leap_year(year);
-    i32 days_in_month[] = {31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     const char* month_names[] = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"};
 
     i32 month = 0;
     i32 day = day_of_year;
-    while (month < 12 && day > days_in_month[month])
+    i32 days_in_month = get_days_in_month(month, year);
+    while (month < 12 && day > days_in_month)
     {
-        day -= days_in_month[month];
+        day -= days_in_month;
         month++;
     }
 
@@ -210,6 +216,44 @@ inline bool lint_header(const LasHeader& header, u64 file_size)
     std::println("");
 
     return errors.empty();
+}
+
+inline void update_header_for_write(LasHeader& header, u64 point_count, const BoundingBox& bbox)
+{
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+
+    u16 year = st.wYear;
+    u16 day_of_year = st.wDay;
+    for (i32 i = 0; i < st.wMonth - 1; ++i) day_of_year += get_days_in_month(i, year);
+    header.creation_year = year;
+    header.creation_day_of_year = day_of_year;
+
+    header.number_of_point_records = point_count;
+    if (point_count > std::numeric_limits<u32>::max())
+        header.legacy_number_of_point_records = 0;
+    else
+        header.legacy_number_of_point_records = static_cast<u32>(point_count);
+
+    // Tracking them during AVX2 processing is too expensive, so we return empty arrays.
+    header.legacy_number_of_points_by_return.fill(0);
+    header.number_of_points_by_return.fill(0);
+
+    if (point_count > 0)
+    {
+        header.min_x = bbox.min_x;
+        header.max_x = bbox.max_x;
+        header.min_y = bbox.min_y;
+        header.max_y = bbox.max_y;
+        header.min_z = bbox.min_z;
+        header.max_z = bbox.max_z;
+    }
+    else
+    {
+        header.min_x = header.max_x = 0;
+        header.min_y = header.max_y = 0;
+        header.min_z = header.max_z = 0;
+    }
 }
 
 } // namespace laspar

@@ -1,4 +1,5 @@
 #pragma once
+#include "file_writer.hpp"
 #include "header_view.hpp"
 #include "las_data.hpp"
 #include <array>
@@ -39,12 +40,13 @@ inline double hsum_pd(__m256d v)
 }
 
 // AVX2 point processing function to get all data required in the command line.
-template <bool HasClassFilter, bool HasCoordFilter, bool DoCount, bool DoBBox, bool DoElev>
+template <
+    bool HasClassFilter, bool HasCoordFilter, bool DoCount, bool DoBBox, bool DoElev, bool WriteKept, bool WriteDropped>
 inline ProcessResult process_points_avx2(
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
     const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
     std::vector<u64>& out_class_counts, double filter_xmin, double filter_xmax, double filter_ymin, double filter_ymax,
-    double filter_zmin, double filter_zmax
+    double filter_zmin, double filter_zmax, BufferedFileWriter* kept_writer, BufferedFileWriter* dropped_writer
 )
 {
     ProcessResult result {};
@@ -60,10 +62,11 @@ inline ProcessResult process_points_avx2(
     const __m256d z_offset = _mm256_set1_pd(view.header->z_offset);
 
     __m256d min_x, max_x, min_y, max_y, min_z, max_z;
+    __m256d dropped_min_x, dropped_max_x, dropped_min_y, dropped_max_y, dropped_min_z, dropped_max_z;
     const __m256d pos_inf = _mm256_set1_pd(std::numeric_limits<double>::max());
     const __m256d neg_inf = _mm256_set1_pd(std::numeric_limits<double>::lowest());
 
-    if constexpr (DoBBox)
+    if constexpr (DoBBox || WriteKept)
     {
         min_x = pos_inf;
         max_x = neg_inf;
@@ -71,6 +74,15 @@ inline ProcessResult process_points_avx2(
         max_y = neg_inf;
         min_z = pos_inf;
         max_z = neg_inf;
+    }
+    if constexpr (WriteDropped)
+    {
+        dropped_min_x = pos_inf;
+        dropped_max_x = neg_inf;
+        dropped_min_y = pos_inf;
+        dropped_max_y = neg_inf;
+        dropped_min_z = pos_inf;
+        dropped_max_z = neg_inf;
     }
 
     __m256d sum_z_vec, sum_z2_vec, zero_pd;
@@ -94,6 +106,7 @@ inline ProcessResult process_points_avx2(
     u64 i = 0;
     const u64 batch_limit = view.point_count - (view.point_count % 4);
     u64 passed_count = 0;
+    u64 dropped_count = 0;
 
     for (; i < batch_limit; i += 4)
     {
@@ -167,7 +180,35 @@ inline ProcessResult process_points_avx2(
             if constexpr (HasClassFilter || HasCoordFilter)
             {
                 int mask = _mm256_movemask_pd(blend);
-                passed_count += std::popcount(static_cast<u32>(mask));
+                u32 pop = std::popcount(static_cast<u32>(mask));
+                passed_count += pop;
+                dropped_count += 4 - pop;
+
+                if constexpr (WriteKept)
+                {
+                    if (mask == 15)
+                        kept_writer->write(p, stride * 4);
+                    else
+                    {
+                        if (mask & 1) kept_writer->write(p, stride);
+                        if (mask & 2) kept_writer->write(p + stride, stride);
+                        if (mask & 4) kept_writer->write(p + stride * 2, stride);
+                        if (mask & 8) kept_writer->write(p + stride * 3, stride);
+                    }
+                }
+
+                if constexpr (WriteDropped)
+                {
+                    if (mask == 0)
+                        dropped_writer->write(p, stride * 4);
+                    else
+                    {
+                        if (!(mask & 1)) dropped_writer->write(p, stride);
+                        if (!(mask & 2)) dropped_writer->write(p + stride, stride);
+                        if (!(mask & 4)) dropped_writer->write(p + stride * 2, stride);
+                        if (!(mask & 8)) dropped_writer->write(p + stride * 3, stride);
+                    }
+                }
 
                 if constexpr (DoElev)
                 {
@@ -176,7 +217,7 @@ inline ProcessResult process_points_avx2(
                     sum_z2_vec = _mm256_fmadd_pd(vz_filtered, vz_filtered, sum_z2_vec);
                 }
 
-                if constexpr (DoBBox)
+                if constexpr (DoBBox || WriteKept)
                 {
                     min_x = _mm256_min_pd(min_x, _mm256_blendv_pd(pos_inf, vx, blend));
                     max_x = _mm256_max_pd(max_x, _mm256_blendv_pd(neg_inf, vx, blend));
@@ -184,6 +225,17 @@ inline ProcessResult process_points_avx2(
                     max_y = _mm256_max_pd(max_y, _mm256_blendv_pd(neg_inf, vy, blend));
                     min_z = _mm256_min_pd(min_z, _mm256_blendv_pd(pos_inf, vz, blend));
                     max_z = _mm256_max_pd(max_z, _mm256_blendv_pd(neg_inf, vz, blend));
+                }
+
+                if constexpr (WriteDropped)
+                {
+                    __m256d dropped_blend = _mm256_xor_pd(blend, _mm256_castsi256_pd(_mm256_set1_epi32(-1)));
+                    dropped_min_x = _mm256_min_pd(dropped_min_x, _mm256_blendv_pd(pos_inf, vx, dropped_blend));
+                    dropped_max_x = _mm256_max_pd(dropped_max_x, _mm256_blendv_pd(neg_inf, vx, dropped_blend));
+                    dropped_min_y = _mm256_min_pd(dropped_min_y, _mm256_blendv_pd(pos_inf, vy, dropped_blend));
+                    dropped_max_y = _mm256_max_pd(dropped_max_y, _mm256_blendv_pd(neg_inf, vy, dropped_blend));
+                    dropped_min_z = _mm256_min_pd(dropped_min_z, _mm256_blendv_pd(pos_inf, vz, dropped_blend));
+                    dropped_max_z = _mm256_max_pd(dropped_max_z, _mm256_blendv_pd(neg_inf, vz, dropped_blend));
                 }
 
                 if constexpr (DoCount)
@@ -197,12 +249,14 @@ inline ProcessResult process_points_avx2(
             else // Only DoCount is true
             {
                 passed_count += 4;
+                if constexpr (WriteKept) kept_writer->write(p, stride * 4);
+
                 if constexpr (DoElev)
                 {
                     sum_z_vec = _mm256_add_pd(sum_z_vec, vz);
                     sum_z2_vec = _mm256_fmadd_pd(vz, vz, sum_z2_vec);
                 }
-                if constexpr (DoBBox)
+                if constexpr (DoBBox || WriteKept)
                 {
                     min_x = _mm256_min_pd(min_x, vx);
                     max_x = _mm256_max_pd(max_x, vx);
@@ -220,6 +274,7 @@ inline ProcessResult process_points_avx2(
         else
         {
             passed_count += 4;
+            if constexpr (WriteKept) kept_writer->write(p, stride * 4);
 
             if constexpr (DoElev)
             {
@@ -227,7 +282,7 @@ inline ProcessResult process_points_avx2(
                 sum_z2_vec = _mm256_fmadd_pd(vz, vz, sum_z2_vec);
             }
 
-            if constexpr (DoBBox)
+            if constexpr (DoBBox || WriteKept)
             {
                 min_x = _mm256_min_pd(min_x, vx);
                 max_x = _mm256_max_pd(max_x, vx);
@@ -248,7 +303,7 @@ inline ProcessResult process_points_avx2(
         result.sum_z2 = hsum_pd(sum_z2_vec);
     }
 
-    if constexpr (DoBBox)
+    if constexpr (DoBBox || WriteKept)
     {
         result.bbox.min_x = hmin_pd(min_x);
         result.bbox.max_x = hmax_pd(max_x);
@@ -256,6 +311,16 @@ inline ProcessResult process_points_avx2(
         result.bbox.max_y = hmax_pd(max_y);
         result.bbox.min_z = hmin_pd(min_z);
         result.bbox.max_z = hmax_pd(max_z);
+    }
+
+    if constexpr (WriteDropped)
+    {
+        result.dropped_bbox.min_x = hmin_pd(dropped_min_x);
+        result.dropped_bbox.max_x = hmax_pd(dropped_max_x);
+        result.dropped_bbox.min_y = hmin_pd(dropped_min_y);
+        result.dropped_bbox.max_y = hmax_pd(dropped_max_y);
+        result.dropped_bbox.min_z = hmin_pd(dropped_min_z);
+        result.dropped_bbox.max_z = hmax_pd(dropped_max_z);
     }
 
     // Process the remaining points using scalar math.
@@ -288,13 +353,15 @@ inline ProcessResult process_points_avx2(
         if (passed)
         {
             passed_count++;
+            if constexpr (WriteKept) kept_writer->write(p, stride);
+
             if constexpr (DoCount) out_class_counts[c]++;
             if constexpr (DoElev)
             {
                 result.sum_z += z;
                 result.sum_z2 += z * z;
             }
-            if constexpr (DoBBox)
+            if constexpr (DoBBox || WriteKept)
             {
                 result.bbox.min_x = std::min(result.bbox.min_x, x);
                 result.bbox.max_x = std::max(result.bbox.max_x, x);
@@ -304,11 +371,28 @@ inline ProcessResult process_points_avx2(
                 result.bbox.max_z = std::max(result.bbox.max_z, z);
             }
         }
+        else
+        {
+            dropped_count++;
+            if constexpr (WriteDropped)
+            {
+                dropped_writer->write(p, stride);
+                result.dropped_bbox.min_x = std::min(result.dropped_bbox.min_x, x);
+                result.dropped_bbox.max_x = std::max(result.dropped_bbox.max_x, x);
+                result.dropped_bbox.min_y = std::min(result.dropped_bbox.min_y, y);
+                result.dropped_bbox.max_y = std::max(result.dropped_bbox.max_y, y);
+                result.dropped_bbox.min_z = std::min(result.dropped_bbox.min_z, z);
+                result.dropped_bbox.max_z = std::max(result.dropped_bbox.max_z, z);
+            }
+        }
 
         p += stride;
     }
 
     result.points_processed = passed_count;
+    result.points_dropped = dropped_count;
+    if constexpr (WriteKept) result.io_time_seconds += kept_writer->get_io_seconds();
+    if constexpr (WriteDropped) result.io_time_seconds += dropped_writer->get_io_seconds();
     return result;
 }
 
@@ -327,20 +411,23 @@ decltype(auto) dispatch_bools(Fn&& fn, bool current, Rest... rest)
 }
 
 inline ProcessResult dispatch_avx2(
-    bool has_class_filter, bool has_coord_filter, bool do_count, bool do_bbox, bool do_elev, const u8* file_data,
-    const HeaderView& view, const std::array<u8, 256>& filter_mask, const std::array<double, 256>& blend_mask,
-    u32 classification_offset, u8 classification_byte_mask, std::vector<u64>& out_class_counts, double filter_xmin,
-    double filter_xmax, double filter_ymin, double filter_ymax, double filter_zmin, double filter_zmax
+    bool has_class_filter, bool has_coord_filter, bool do_count, bool do_bbox, bool do_elev, bool write_kept,
+    bool write_dropped, const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
+    const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
+    std::vector<u64>& out_class_counts, double filter_xmin, double filter_xmax, double filter_ymin, double filter_ymax,
+    double filter_zmin, double filter_zmax, BufferedFileWriter* kept_writer, BufferedFileWriter* dropped_writer
 )
 {
-    auto runner = [&]<bool HCF, bool HCoF, bool DC, bool DB, bool DE>() {
-        return process_points_avx2<HCF, HCoF, DC, DB, DE>(
+    auto runner = [&]<bool HCF, bool HCoF, bool DC, bool DB, bool DE, bool WK, bool WD>() {
+        return process_points_avx2<HCF, HCoF, DC, DB, DE, WK, WD>(
             file_data, view, filter_mask, blend_mask, classification_offset, classification_byte_mask, out_class_counts,
-            filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax
+            filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, kept_writer, dropped_writer
         );
     };
 
-    return dispatch_bools(runner, has_class_filter, has_coord_filter, do_count, do_bbox, do_elev);
+    return dispatch_bools(
+        runner, has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, write_kept, write_dropped
+    );
 }
 
 template <bool HasClassFilter, bool HasCoordFilter>

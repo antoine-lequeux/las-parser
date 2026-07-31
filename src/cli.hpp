@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "avx2_processing.hpp"
+#include "file_writer.hpp"
 #include "header_utils.hpp"
 #include "header_view.hpp"
 #include "memory_mapper.hpp"
@@ -144,6 +145,8 @@ inline void print_elev_histogram(
 inline int launch_cli(int argc, const char** argv)
 {
     std::string input_file;
+    std::string write_kept;
+    std::string write_dropped;
     std::vector<int> keep_classes;
     std::optional<double> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
     bool show_help = false;
@@ -158,6 +161,10 @@ inline int launch_cli(int argc, const char** argv)
     auto cli =
         lyra::help(show_help) | lyra::arg(input_file, "input_file")("The LAS file to process").required() |
         lyra::opt(keep_classes, "class")["-k"]["--keep-class"]("Filter by classification (can be chained)") |
+        lyra::opt(write_kept, "file")["--write-kept"]("Write points that survived the filter to a new LAS file") |
+        lyra::opt(write_dropped, "file")["--write-dropped"](
+            "Write points that did not survive the filter to a new LAS file"
+        ) |
         lyra::opt(opt_xmin, "value")["--xmin"]("Filter points with X >= value") |
         lyra::opt(opt_xmax, "value")["--xmax"]("Filter points with X <= value") |
         lyra::opt(opt_ymin, "value")["--ymin"]("Filter points with Y >= value") |
@@ -267,6 +274,33 @@ inline int launch_cli(int argc, const char** argv)
         timings.push_back({"Pre-loaded file data in", std::chrono::duration<double>(end - start).count()});
     }
 
+    bool do_write_kept = !write_kept.empty();
+    bool do_write_dropped = !write_dropped.empty();
+
+    BufferedFileWriter kept_writer, dropped_writer;
+
+    if (do_write_kept)
+    {
+        if (!kept_writer.open(write_kept))
+        {
+            std::println(stderr, "Error: Could not open output file '{}' for writing kept points.", write_kept);
+            return 1;
+        }
+        // Reserve space for header.
+        kept_writer.write(file_result->data(), view.point_data_offset);
+    }
+
+    if (do_write_dropped)
+    {
+        if (!dropped_writer.open(write_dropped))
+        {
+            std::println(stderr, "Error: Could not open output file '{}' for writing dropped points.", write_dropped);
+            return 1;
+        }
+        // Reserve space for header.
+        dropped_writer.write(file_result->data(), view.point_data_offset);
+    }
+
     const u8 format_id = view.header->point_data_record_format & 0x3Fu;
     const u32 classification_offset = (format_id <= 5) ? 15u : 16u;
     const u8 classification_mask = (format_id <= 5) ? 0x1Fu : 0xFFu;
@@ -275,24 +309,41 @@ inline int launch_cli(int argc, const char** argv)
 
     auto start_process = std::chrono::high_resolution_clock::now();
 
-    if (do_elev || do_count || do_bbox)
+    if (do_elev || do_count || do_bbox || do_write_kept || do_write_dropped)
     {
         ProcessResult pr = dispatch_avx2(
-            has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, file_result->data(), view, filter_mask,
-            blend_mask, classification_offset, classification_mask, class_counts, filter_xmin, filter_xmax, filter_ymin,
-            filter_ymax, filter_zmin, filter_zmax
+            has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, do_write_kept, do_write_dropped,
+            file_result->data(), view, filter_mask, blend_mask, classification_offset, classification_mask,
+            class_counts, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, &kept_writer,
+            &dropped_writer
         );
 
         const u64 points_processed = pr.points_processed;
 
         auto end_process = std::chrono::high_resolution_clock::now();
-        double process_seconds = std::chrono::duration<double>(end_process - start_process).count();
+        double total_process_seconds = std::chrono::duration<double>(end_process - start_process).count();
+        double compute_seconds = std::max(0.0001, total_process_seconds - pr.io_time_seconds);
 
-        double mp_s = (view.point_count / 1'000'000.0) / process_seconds;
-        double gb_s = ((view.point_count * view.point_record_length) / 1'000'000'000.0) / process_seconds;
+        double mp_s = (view.point_count / 1'000'000.0) / compute_seconds;
+        double gb_s = ((view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
         std::string process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
-        timings.push_back({std::format("Processed {} points in", points_processed), process_seconds, process_suffix});
+        timings.push_back({std::format("Processed {} points in", points_processed), compute_seconds, process_suffix});
+
+        if (do_write_kept || do_write_dropped)
+        {
+            u64 points_written = 0;
+            if (do_write_kept) points_written += pr.points_processed;
+            if (do_write_dropped) points_written += pr.points_dropped;
+
+            double io_mp_s = (points_written / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
+            double io_gb_s =
+                ((points_written * view.point_record_length) / 1'000'000'000.0) / std::max(0.0001, pr.io_time_seconds);
+            std::string io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
+            timings.push_back(
+                {std::format("Wrote {} points to disk in", points_written), pr.io_time_seconds, io_suffix}
+            );
+        }
 
         std::vector<u64> z_bins(nb_bins, 0);
         u64 underflow_count = 0, overflow_count = 0;
@@ -323,6 +374,31 @@ inline int launch_cli(int argc, const char** argv)
 
             auto end1 = std::chrono::high_resolution_clock::now();
             timings.push_back({"Computed elev. hist. in", std::chrono::duration<double>(end1 - start1).count()});
+        }
+
+        if (do_write_kept || do_write_dropped)
+        {
+            auto start2 = std::chrono::high_resolution_clock::now();
+
+            if (do_write_kept)
+            {
+                LasHeader kept_header = *view.header;
+                update_header_for_write(kept_header, pr.points_processed, pr.bbox);
+                kept_writer.seek(0);
+                kept_writer.write(&kept_header, sizeof(LasHeader));
+                kept_writer.close();
+            }
+            if (do_write_dropped)
+            {
+                LasHeader dropped_header = *view.header;
+                update_header_for_write(dropped_header, pr.points_dropped, pr.dropped_bbox);
+                dropped_writer.seek(0);
+                dropped_writer.write(&dropped_header, sizeof(LasHeader));
+                dropped_writer.close();
+            }
+
+            auto end2 = std::chrono::high_resolution_clock::now();
+            timings.push_back({"Updated output files in", std::chrono::duration<double>(end2 - start2).count()});
         }
 
         usize max_len = 0;
@@ -362,7 +438,7 @@ inline int launch_cli(int argc, const char** argv)
     }
     else if (!do_header && !do_lint)
     {
-        std::println("No work to do. Use '-b', '-e', or '-c' to perform operations on points.");
+        std::println("No work to do.");
     }
 
     return 0;
