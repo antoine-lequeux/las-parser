@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "avx2_processing.hpp"
+#include "header_utils.hpp"
 #include "header_view.hpp"
 #include "memory_mapper.hpp"
 
@@ -149,6 +150,8 @@ inline int launch_cli(int argc, const char** argv)
     bool do_bbox = false;
     bool do_count = false;
     bool do_elev = false;
+    bool do_header = false;
+    bool do_lint = false;
     u16 hist_width = 100;
     u16 nb_bins = 20;
 
@@ -168,6 +171,8 @@ inline int launch_cli(int argc, const char** argv)
         lyra::opt(do_elev)["-e"]["--elevation"](
             "Show histogram of filtered points by elevation; optionally set max histogram bar width (default: 100)"
         ) |
+        lyra::opt(do_header)["-H"]["--header"]("Print the LAS header metadata") |
+        lyra::opt(do_lint)["-L"]["--lint"]("Check the LAS header for corruption or mismatch") |
         lyra::opt(hist_width, "width")["-w"]["--hist-width"]("Max histogram bar width in characters (default: 100)") |
         lyra::opt(nb_bins, "bins")["--bins"]("Number of bins in the elevation histogram (default: 20)");
 
@@ -231,6 +236,14 @@ inline int launch_cli(int argc, const char** argv)
         return 1;
     }
     const auto& view = header_result.value();
+
+    if (do_header) print_header(*view.header, input_file);
+
+    if (do_lint)
+    {
+        bool passed = lint_header(*view.header, file_result->size());
+        if (!passed) return 1;
+    }
 
     struct TimingRecord
     {
@@ -347,7 +360,7 @@ inline int launch_cli(int argc, const char** argv)
 
         if (do_count && points_processed > 0) print_class_histogram(class_counts, format_id, hist_width);
     }
-    else
+    else if (!do_header && !do_lint)
     {
         std::println("No work to do. Use '-b', '-e', or '-c' to perform operations on points.");
     }
