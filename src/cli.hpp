@@ -201,7 +201,6 @@ inline int launch_cli(int argc, const char** argv)
 
     std::array<u8, 256> filter_mask = {0};
     std::array<f64, 256> blend_mask = {0.0};
-    const f64 lane_pass = std::bit_cast<f64>(~u64 {0});
 
     const bool has_class_filter = !keep_classes.empty();
     const bool has_coord_filter = opt_xmin || opt_xmax || opt_ymin || opt_ymax || opt_zmin || opt_zmax;
