@@ -9,13 +9,13 @@ inline BoundingBox compute_bounding_box_scalar(const u8* file_data, const Header
 {
     BoundingBox bbox;
 
-    const double x_scale = view.header->x_scale_factor;
-    const double y_scale = view.header->y_scale_factor;
-    const double z_scale = view.header->z_scale_factor;
+    const f64 x_scale = view.header->x_scale_factor;
+    const f64 y_scale = view.header->y_scale_factor;
+    const f64 z_scale = view.header->z_scale_factor;
 
-    const double x_offset = view.header->x_offset;
-    const double y_offset = view.header->y_offset;
-    const double z_offset = view.header->z_offset;
+    const f64 x_offset = view.header->x_offset;
+    const f64 y_offset = view.header->y_offset;
+    const f64 z_offset = view.header->z_offset;
 
     // Pointer on the first byte of point data.
     const u8* current_ptr = file_data + view.point_data_offset;
@@ -25,9 +25,9 @@ inline BoundingBox compute_bounding_box_scalar(const u8* file_data, const Header
         const auto* point = reinterpret_cast<const LasPointCoordinates*>(current_ptr);
 
         // Apply scale and offset.
-        double x = (point->x * x_scale) + x_offset;
-        double y = (point->y * y_scale) + y_offset;
-        double z = (point->z * z_scale) + z_offset;
+        f64 x = (point->x * x_scale) + x_offset;
+        f64 y = (point->y * y_scale) + y_offset;
+        f64 z = (point->z * z_scale) + z_offset;
 
         bbox.min_x = std::min(bbox.min_x, x);
         bbox.max_x = std::max(bbox.max_x, x);

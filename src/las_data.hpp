@@ -35,19 +35,19 @@ struct LasHeader
     u32 legacy_number_of_point_records;
     std::array<u32, 5> legacy_number_of_points_by_return;
 
-    double x_scale_factor;
-    double y_scale_factor;
-    double z_scale_factor;
-    double x_offset;
-    double y_offset;
-    double z_offset;
+    f64 x_scale_factor;
+    f64 y_scale_factor;
+    f64 z_scale_factor;
+    f64 x_offset;
+    f64 y_offset;
+    f64 z_offset;
 
-    double max_x;
-    double min_x;
-    double max_y;
-    double min_y;
-    double max_z;
-    double min_z;
+    f64 max_x;
+    f64 min_x;
+    f64 max_y;
+    f64 min_y;
+    f64 max_z;
+    f64 min_z;
 
     u64 start_of_waveform_data_packet_record;
     u64 start_of_first_evlr;
@@ -107,7 +107,7 @@ struct LasPointFormat0
 struct LasPointFormat1
 {
     LasPointBase base;
-    double gps_time;
+    f64 gps_time;
 
     [[nodiscard]] i32 get_x() const { return base.x; }
     [[nodiscard]] i32 get_y() const { return base.y; }
@@ -127,7 +127,7 @@ struct LasPointFormat2
 struct LasPointFormat3
 {
     LasPointBase base;
-    double gps_time;
+    f64 gps_time;
     LasColor color;
 
     [[nodiscard]] i32 get_x() const { return base.x; }
@@ -138,7 +138,7 @@ struct LasPointFormat3
 struct LasPointFormat4
 {
     LasPointBase base;
-    double gps_time;
+    f64 gps_time;
     LasWavePacket wave;
 
     [[nodiscard]] i32 get_x() const { return base.x; }
@@ -149,7 +149,7 @@ struct LasPointFormat4
 struct LasPointFormat5
 {
     LasPointBase base;
-    double gps_time;
+    f64 gps_time;
     LasColor color;
     LasWavePacket wave;
 
@@ -172,7 +172,7 @@ struct LasPointBaseModern
     u8 user_data;
     i16 scan_angle;
     u16 point_source_id;
-    double gps_time;
+    f64 gps_time;
 };
 static_assert(sizeof(LasPointBaseModern) == 30, "LasPointBaseModern must be exactly 30 bytes");
 
@@ -240,14 +240,14 @@ struct LasPointCoordinates
 
 struct BoundingBox
 {
-    double min_x = std::numeric_limits<double>::max();
-    double max_x = std::numeric_limits<double>::lowest();
+    f64 min_x = std::numeric_limits<f64>::max();
+    f64 max_x = std::numeric_limits<f64>::lowest();
 
-    double min_y = std::numeric_limits<double>::max();
-    double max_y = std::numeric_limits<double>::lowest();
+    f64 min_y = std::numeric_limits<f64>::max();
+    f64 max_y = std::numeric_limits<f64>::lowest();
 
-    double min_z = std::numeric_limits<double>::max();
-    double max_z = std::numeric_limits<double>::lowest();
+    f64 min_z = std::numeric_limits<f64>::max();
+    f64 max_z = std::numeric_limits<f64>::lowest();
 };
 
 struct ProcessResult
@@ -258,10 +258,10 @@ struct ProcessResult
     BoundingBox bbox;
     BoundingBox dropped_bbox;
 
-    double sum_z = 0.0;
-    double sum_z2 = 0.0;
+    f64 sum_z = 0.0;
+    f64 sum_z2 = 0.0;
 
-    double io_time_seconds = 0.0;
+    f64 io_time_seconds = 0.0;
 };
 
 } // namespace laspar

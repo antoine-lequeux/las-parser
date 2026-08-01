@@ -2,8 +2,6 @@
 
 #include "las_data.hpp"
 #include <cstdint>
-#include <expected>
-#include <string_view>
 
 namespace laspar
 {
@@ -16,30 +14,30 @@ struct HeaderView
     u16 point_record_length;
 };
 
-inline std::expected<HeaderView, std::string_view> validate_las_header(const u8* data, usize file_size)
+inline Result<HeaderView, StringView> validate_las_header(const u8* data, usize file_size)
 {
-    if (file_size < sizeof(LasHeader)) return std::unexpected("File is smaller than the minimum LAS header size.");
+    if (file_size < sizeof(LasHeader)) return Fail("File is smaller than the minimum LAS header size.");
 
     const auto* header = reinterpret_cast<const LasHeader*>(data);
 
-    std::string_view sig(header->signature);
-    if (sig != "LASF") return std::unexpected("Invalid signature (expected 'LASF').");
+    StringView sig(header->signature);
+    if (sig != "LASF") return Fail("Invalid signature (expected 'LASF').");
 
-    if (header->version_major != 1 || header->version_minor > 4) return std::unexpected("Unsupported LAS version.");
+    if (header->version_major != 1 || header->version_minor > 4) return Fail("Unsupported LAS version.");
 
     if (header->offset_to_point_data < header->header_size)
-        return std::unexpected("Corrupt header (point data offset is inside the header).");
+        return Fail("Corrupt header (point data offset is inside the header).");
 
     u64 total_points = header->number_of_point_records;
     if (total_points == 0 && header->legacy_number_of_point_records > 0)
         total_points = header->legacy_number_of_point_records;
 
     u16 point_len = header->point_data_record_length;
-    if (point_len == 0) return std::unexpected("Corrupt header (point record length cannot be 0).");
+    if (point_len == 0) return Fail("Corrupt header (point record length cannot be 0).");
 
     u64 required_bytes = static_cast<uint64_t>(header->offset_to_point_data) + (total_points * point_len);
     if (file_size < required_bytes)
-        return std::unexpected("Truncated file (file size is smaller than expected point data bounds).");
+        return Fail("Truncated file (file size is smaller than expected point data bounds).");
 
     return HeaderView {
         .header = header,

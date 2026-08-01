@@ -10,7 +10,7 @@
 namespace laspar
 {
 // Get the smallest double out of 4.
-inline double hmin_pd(__m256d v)
+inline f64 hmin_pd(__m256d v)
 {
     __m256d perm = _mm256_permute2f128_pd(v, v, 1);
     __m256d min1 = _mm256_min_pd(v, perm);
@@ -20,7 +20,7 @@ inline double hmin_pd(__m256d v)
 }
 
 // Get the largest double out of 4.
-inline double hmax_pd(__m256d v)
+inline f64 hmax_pd(__m256d v)
 {
     __m256d perm = _mm256_permute2f128_pd(v, v, 1);
     __m256d max1 = _mm256_max_pd(v, perm);
@@ -30,7 +30,7 @@ inline double hmax_pd(__m256d v)
 }
 
 // Get the sum of all 4 doubles.
-inline double hsum_pd(__m256d v)
+inline f64 hsum_pd(__m256d v)
 {
     __m128d lo = _mm256_extractf128_pd(v, 0);
     __m128d hi = _mm256_extractf128_pd(v, 1);
@@ -39,17 +39,41 @@ inline double hsum_pd(__m256d v)
     return _mm_cvtsd_f64(sum2);
 }
 
+constexpr f64 lane_pass = std::bit_cast<f64>(~u64 {0});
+
+alignas(32) const f64 decimation_mask_lut_data[16][4] = {
+    {0.0, 0.0, 0.0, 0.0},
+    {lane_pass, 0.0, 0.0, 0.0},
+    {0.0, lane_pass, 0.0, 0.0},
+    {lane_pass, lane_pass, 0.0, 0.0},
+    {0.0, 0.0, lane_pass, 0.0},
+    {lane_pass, 0.0, lane_pass, 0.0},
+    {0.0, lane_pass, lane_pass, 0.0},
+    {lane_pass, lane_pass, lane_pass, 0.0},
+    {0.0, 0.0, 0.0, lane_pass},
+    {lane_pass, 0.0, 0.0, lane_pass},
+    {0.0, lane_pass, 0.0, lane_pass},
+    {lane_pass, lane_pass, 0.0, lane_pass},
+    {0.0, 0.0, lane_pass, lane_pass},
+    {lane_pass, 0.0, lane_pass, lane_pass},
+    {0.0, lane_pass, lane_pass, lane_pass},
+    {lane_pass, lane_pass, lane_pass, lane_pass}
+};
+
 // AVX2 point processing function to get all data required in the command line.
 template <
-    bool HasClassFilter, bool HasCoordFilter, bool DoCount, bool DoBBox, bool DoElev, bool WriteKept, bool WriteDropped>
+    bool HasClassFilter, bool HasCoordFilter, bool DoCount, bool DoBBox, bool DoElev, bool WriteKept, bool WriteDropped,
+    bool HasDecimation>
 inline ProcessResult process_points_avx2(
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
-    const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
-    std::vector<u64>& out_class_counts, double filter_xmin, double filter_xmax, double filter_ymin, double filter_ymax,
-    double filter_zmin, double filter_zmax, BufferedFileWriter* kept_writer, BufferedFileWriter* dropped_writer
+    const std::array<f64, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
+    std::vector<u64>& out_class_counts, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin, f64 filter_ymax,
+    f64 filter_zmin, f64 filter_zmax, u64 keep_every, BufferedFileWriter* kept_writer,
+    BufferedFileWriter* dropped_writer
 )
 {
     ProcessResult result {};
+    u64 current_offset = 0;
 
     // Store the scale values into 256-bit registers holding 4 doubles each.
     const __m256d x_scale = _mm256_set1_pd(view.header->x_scale_factor);
@@ -63,8 +87,8 @@ inline ProcessResult process_points_avx2(
 
     __m256d min_x, max_x, min_y, max_y, min_z, max_z;
     __m256d dropped_min_x, dropped_max_x, dropped_min_y, dropped_max_y, dropped_min_z, dropped_max_z;
-    const __m256d pos_inf = _mm256_set1_pd(std::numeric_limits<double>::max());
-    const __m256d neg_inf = _mm256_set1_pd(std::numeric_limits<double>::lowest());
+    const __m256d pos_inf = _mm256_set1_pd(std::numeric_limits<f64>::max());
+    const __m256d neg_inf = _mm256_set1_pd(std::numeric_limits<f64>::lowest());
 
     if constexpr (DoBBox || WriteKept)
     {
@@ -179,7 +203,41 @@ inline ProcessResult process_points_avx2(
 
             if constexpr (HasClassFilter || HasCoordFilter)
             {
-                int mask = _mm256_movemask_pd(blend);
+                i32 mask = _mm256_movemask_pd(blend);
+
+                if constexpr (HasDecimation)
+                {
+                    if (mask != 0)
+                    {
+                        u32 num_passed = std::popcount(static_cast<u32>(mask));
+                        if (current_offset != 0 && current_offset + num_passed <= keep_every)
+                        {
+                            current_offset += num_passed;
+                            if (current_offset == keep_every) current_offset = 0;
+                            mask = 0;
+                            blend = _mm256_setzero_pd();
+                        }
+                        else
+                        {
+                            u32 new_mask = 0;
+                            for (i32 b = 0; b < 4; ++b)
+                            {
+                                if (mask & (1 << b))
+                                {
+                                    if (current_offset == 0) new_mask |= (1 << b);
+                                    current_offset++;
+                                    if (current_offset == keep_every) current_offset = 0;
+                                }
+                            }
+                            if (new_mask != static_cast<u32>(mask))
+                            {
+                                mask = new_mask;
+                                blend = _mm256_load_pd(decimation_mask_lut_data[mask]);
+                            }
+                        }
+                    }
+                }
+
                 u32 pop = std::popcount(static_cast<u32>(mask));
                 passed_count += pop;
                 dropped_count += 4 - pop;
@@ -332,9 +390,9 @@ inline ProcessResult process_points_avx2(
         if constexpr (HasClassFilter || DoCount) c = p[classification_offset] & classification_byte_mask;
 
         const auto* pt = reinterpret_cast<const LasPointCoordinates*>(p);
-        const double x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
-        const double y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
-        const double z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
+        const f64 x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
+        const f64 y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
+        const f64 z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
 
         if constexpr (HasClassFilter)
         {
@@ -347,6 +405,24 @@ inline ProcessResult process_points_avx2(
                 z > filter_zmax)
             {
                 passed = false;
+            }
+        }
+
+        if (passed)
+        {
+            if constexpr (HasDecimation)
+            {
+                if (current_offset != 0)
+                {
+                    current_offset++;
+                    if (current_offset == keep_every) current_offset = 0;
+                    passed = false;
+                }
+                else
+                {
+                    current_offset++;
+                    if (current_offset == keep_every) current_offset = 0;
+                }
             }
         }
 
@@ -412,33 +488,36 @@ decltype(auto) dispatch_bools(Fn&& fn, bool current, Rest... rest)
 
 inline ProcessResult dispatch_avx2(
     bool has_class_filter, bool has_coord_filter, bool do_count, bool do_bbox, bool do_elev, bool write_kept,
-    bool write_dropped, const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
-    const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
-    std::vector<u64>& out_class_counts, double filter_xmin, double filter_xmax, double filter_ymin, double filter_ymax,
-    double filter_zmin, double filter_zmax, BufferedFileWriter* kept_writer, BufferedFileWriter* dropped_writer
+    bool write_dropped, bool has_decimation, const u8* file_data, const HeaderView& view,
+    const std::array<u8, 256>& filter_mask, const std::array<f64, 256>& blend_mask, u32 classification_offset,
+    u8 classification_byte_mask, std::vector<u64>& out_class_counts, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin,
+    f64 filter_ymax, f64 filter_zmin, f64 filter_zmax, u64 keep_every, BufferedFileWriter* kept_writer,
+    BufferedFileWriter* dropped_writer
 )
 {
-    auto runner = [&]<bool HCF, bool HCoF, bool DC, bool DB, bool DE, bool WK, bool WD>() {
-        return process_points_avx2<HCF, HCoF, DC, DB, DE, WK, WD>(
+    auto runner = [&]<bool HCF, bool HCoF, bool DC, bool DB, bool DE, bool WK, bool WD, bool HD>() {
+        return process_points_avx2<HCF, HCoF, DC, DB, DE, WK, WD, HD>(
             file_data, view, filter_mask, blend_mask, classification_offset, classification_byte_mask, out_class_counts,
-            filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, kept_writer, dropped_writer
+            filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, keep_every, kept_writer,
+            dropped_writer
         );
     };
 
     return dispatch_bools(
-        runner, has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, write_kept, write_dropped
+        runner, has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, write_kept, write_dropped,
+        has_decimation
     );
 }
 
-template <bool HasClassFilter, bool HasCoordFilter>
+template <bool HasClassFilter, bool HasCoordFilter, bool HasDecimation>
 inline void build_elev_histogram_avx2(
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask,
-    const std::array<double, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask,
-    double filter_xmin, double filter_xmax, double filter_ymin, double filter_ymax, double filter_zmin,
-    double filter_zmax, double hist_min, double hist_max, double bin_step, i32 nb_bins, std::vector<u64>& out_z_bins,
-    u64& out_underflow, u64& out_overflow
+    const std::array<f64, 256>& blend_mask, u32 classification_offset, u8 classification_byte_mask, f64 filter_xmin,
+    f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin, f64 filter_zmax, u64 keep_every, f64 hist_min,
+    f64 hist_max, f64 bin_step, i32 nb_bins, std::vector<u64>& out_z_bins, u64& out_underflow, u64& out_overflow
 )
 {
+    u64 current_offset = 0;
     const __m256d x_scale = _mm256_set1_pd(view.header->x_scale_factor);
     const __m256d y_scale = _mm256_set1_pd(view.header->y_scale_factor);
     const __m256d z_scale = _mm256_set1_pd(view.header->z_scale_factor);
@@ -474,7 +553,7 @@ inline void build_elev_histogram_avx2(
         __m128i vz_int = _mm_unpacklo_epi64(tmp1, tmp3);
         __m256d vz = _mm256_fmadd_pd(_mm256_cvtepi32_pd(vz_int), z_scale, z_offset);
 
-        int mask = 0xF;
+        i32 mask = 0xF;
 
         if constexpr (HasClassFilter || HasCoordFilter)
         {
@@ -527,14 +606,42 @@ inline void build_elev_histogram_avx2(
                 blend = _mm256_and_pd(m_x, _mm256_and_pd(m_y, m_z));
             }
             mask = _mm256_movemask_pd(blend);
+
+            if constexpr (HasDecimation)
+            {
+                if (mask != 0)
+                {
+                    u32 num_passed = std::popcount(static_cast<u32>(mask));
+                    if (current_offset != 0 && current_offset + num_passed <= keep_every)
+                    {
+                        current_offset += num_passed;
+                        if (current_offset == keep_every) current_offset = 0;
+                        mask = 0;
+                    }
+                    else
+                    {
+                        u32 new_mask = 0;
+                        for (int b = 0; b < 4; ++b)
+                        {
+                            if (mask & (1 << b))
+                            {
+                                if (current_offset == 0) new_mask |= (1 << b);
+                                current_offset++;
+                                if (current_offset == keep_every) current_offset = 0;
+                            }
+                        }
+                        mask = new_mask;
+                    }
+                }
+            }
         }
 
         if (mask)
         {
-            alignas(32) double z_vals[4];
+            alignas(32) f64 z_vals[4];
             _mm256_store_pd(z_vals, vz);
 
-            auto bin_val = [&](double z) {
+            auto bin_val = [&](f64 z) {
                 if (z < hist_min)
                     out_underflow++;
                 else if (z >= hist_max)
@@ -560,9 +667,9 @@ inline void build_elev_histogram_avx2(
         if constexpr (HasClassFilter) c = p[classification_offset] & classification_byte_mask;
 
         const auto* pt = reinterpret_cast<const LasPointCoordinates*>(p);
-        const double x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
-        const double y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
-        const double z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
+        const f64 x = (pt->x * view.header->x_scale_factor) + view.header->x_offset;
+        const f64 y = (pt->y * view.header->y_scale_factor) + view.header->y_offset;
+        const f64 z = (pt->z * view.header->z_scale_factor) + view.header->z_offset;
 
         if constexpr (HasClassFilter)
             if (!filter_mask[c]) passed = false;
@@ -588,22 +695,22 @@ inline void build_elev_histogram_avx2(
 }
 
 inline void dispatch_histogram_avx2(
-    bool has_class_filter, bool has_coord_filter, const u8* file_data, const HeaderView& view,
-    const std::array<u8, 256>& filter_mask, const std::array<double, 256>& blend_mask, u32 classification_offset,
-    u8 classification_byte_mask, double filter_xmin, double filter_xmax, double filter_ymin, double filter_ymax,
-    double filter_zmin, double filter_zmax, double hist_min, double hist_max, double bin_step, i32 nb_bins,
+    bool has_class_filter, bool has_coord_filter, bool has_decimation, const u8* file_data, const HeaderView& view,
+    const std::array<u8, 256>& filter_mask, const std::array<f64, 256>& blend_mask, u32 classification_offset,
+    u8 classification_byte_mask, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin,
+    f64 filter_zmax, u64 keep_every, f64 hist_min, f64 hist_max, f64 bin_step, i32 nb_bins,
     std::vector<u64>& out_z_bins, u64& out_underflow, u64& out_overflow
 )
 {
-    auto runner = [&]<bool HClF, bool HCoF>() {
-        build_elev_histogram_avx2<HClF, HCoF>(
+    auto runner = [&]<bool HCF, bool HCoF, bool HD>() {
+        build_elev_histogram_avx2<HCF, HCoF, HD>(
             file_data, view, filter_mask, blend_mask, classification_offset, classification_byte_mask, filter_xmin,
-            filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, hist_min, hist_max, bin_step, nb_bins,
-            out_z_bins, out_underflow, out_overflow
+            filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, keep_every, hist_min, hist_max, bin_step,
+            nb_bins, out_z_bins, out_underflow, out_overflow
         );
     };
 
-    dispatch_bools(runner, has_class_filter, has_coord_filter);
+    dispatch_bools(runner, has_class_filter, has_coord_filter, has_decimation);
 }
 
 } // namespace laspar

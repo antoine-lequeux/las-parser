@@ -2,7 +2,6 @@
 
 #include "types.hpp"
 #include <cstring>
-#include <string>
 #include <windows.h>
 
 namespace laspar
@@ -16,7 +15,7 @@ public:
 
     ~BufferedFileWriter() { close(); }
 
-    bool open(const std::string& path)
+    bool open(const String& path)
     {
         m_file = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         return m_file != INVALID_HANDLE_VALUE;
@@ -49,7 +48,7 @@ public:
             WriteFile(m_file, m_buffer, static_cast<DWORD>(m_pos), &written, nullptr);
 
             QueryPerformanceCounter(&end);
-            m_io_seconds += static_cast<double>(end.QuadPart - start.QuadPart) / m_qpf.QuadPart;
+            m_io_seconds += static_cast<f64>(end.QuadPart - start.QuadPart) / m_qpf.QuadPart;
 
             m_pos = 0;
         }
@@ -74,14 +73,14 @@ public:
     }
 
     bool is_open() const { return m_file != INVALID_HANDLE_VALUE; }
-    double get_io_seconds() const { return m_io_seconds; }
+    f64 get_io_seconds() const { return m_io_seconds; }
 
 private:
 
     HANDLE m_file = INVALID_HANDLE_VALUE;
     u8 m_buffer[65536];
     usize m_pos = 0;
-    double m_io_seconds = 0.0;
+    f64 m_io_seconds = 0.0;
     LARGE_INTEGER m_qpf;
 };
 

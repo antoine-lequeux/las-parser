@@ -3,7 +3,6 @@
 #include "las_data.hpp"
 #include <format>
 #include <print>
-#include <string>
 #include <vector>
 #include <windows.h>
 
@@ -11,15 +10,15 @@ namespace laspar
 {
 
 template <usize N>
-inline std::string trim_char_array(const std::array<char, N>& arr)
+inline String trim_char_array(const std::array<char, N>& arr)
 {
-    std::string_view sv(arr.data(), arr.size());
+    StringView sv(arr.data(), arr.size());
     usize null_pos = sv.find('\0');
-    if (null_pos != std::string_view::npos) sv = sv.substr(0, null_pos);
+    if (null_pos != StringView::npos) sv = sv.substr(0, null_pos);
 
     usize end = sv.find_last_not_of(' ');
-    if (end == std::string_view::npos) return "";
-    return std::string(sv.substr(0, end + 1));
+    if (end == StringView::npos) return "";
+    return String(sv.substr(0, end + 1));
 }
 
 inline bool is_leap_year(u16 year)
@@ -35,7 +34,7 @@ inline i32 get_days_in_month(u16 month, u16 year)
     return days_in_month[month];
 }
 
-inline std::string format_date(u16 day_of_year, u16 year)
+inline String format_date(u16 day_of_year, u16 year)
 {
     if (day_of_year == 0 || year == 0) return "Unknown";
 
@@ -54,12 +53,12 @@ inline std::string format_date(u16 day_of_year, u16 year)
     return std::format("{} {} {}", day, month_names[month], year);
 }
 
-inline void print_header(const LasHeader& header, std::string file_name)
+inline void print_header(const LasHeader& header, String file_name)
 {
     std::println("========================================================");
     std::println(" LAS HEADER INFORMATION ({})", file_name);
     std::println("========================================================");
-    std::println(" Signature:          {:<4}", std::string_view(header.signature.data(), 4));
+    std::println(" Signature:          {:<4}", StringView(header.signature.data(), 4));
     std::println(" Version:            {}.{}", header.version_major, header.version_minor);
     std::println(" Source ID:          {}", header.file_source_id);
     std::println(" Global encoding:    {}", header.global_encoding);
@@ -73,7 +72,7 @@ inline void print_header(const LasHeader& header, std::string file_name)
     }
     else
     {
-        std::string guid_str = std::format(
+        String guid_str = std::format(
             "{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}", header.guid_data_1,
             header.guid_data_2, header.guid_data_3, static_cast<u8>(header.guid_data_4[0]),
             static_cast<u8>(header.guid_data_4[1]), static_cast<u8>(header.guid_data_4[2]),
@@ -120,10 +119,10 @@ inline void print_header(const LasHeader& header, std::string file_name)
 
 inline bool lint_header(const LasHeader& header, u64 file_size)
 {
-    std::vector<std::string> errors;
-    std::vector<std::string> warnings;
+    std::vector<String> errors;
+    std::vector<String> warnings;
 
-    std::string_view sig(header.signature.data(), 4);
+    StringView sig(header.signature.data(), 4);
     if (sig != "LASF") errors.push_back(std::format("Invalid signature: expected 'LASF', got '{}'", sig));
 
     if (header.version_major != 1)

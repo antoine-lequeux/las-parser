@@ -2,6 +2,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -24,5 +28,15 @@ using f32 = float;
 using f64 = double;
 
 using usize = std::size_t;
+
+using String = std::string;
+using StringView = std::string_view;
+
+template <typename T, typename E>
+using Result = std::expected<T, E>;
+template <typename E>
+using Fail = std::unexpected<E>;
+template <typename T>
+using Option = std::optional<T>;
 
 } // namespace laspar

@@ -1,8 +1,6 @@
 #pragma once
 
-#include <expected>
 #include <filesystem>
-#include <string>
 #include <utility>
 
 #include "types.hpp"
@@ -14,25 +12,25 @@ class MemoryMappedFile
 {
 public:
 
-    static std::expected<MemoryMappedFile, std::string> open(const std::filesystem::path& filepath)
+    static Result<MemoryMappedFile, String> open(const std::filesystem::path& filepath)
     {
         std::error_code ec;
         usize size = std::filesystem::file_size(filepath, ec);
 
-        if (ec) return std::unexpected("File does not exist or cannot be accessed.");
-        if (size == 0) return std::unexpected("File is empty.");
+        if (ec) return Fail("File does not exist or cannot be accessed.");
+        if (size == 0) return Fail("File is empty.");
 
         HANDLE file_handle = CreateFileW(
             filepath.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
             nullptr
         );
-        if (file_handle == INVALID_HANDLE_VALUE) return std::unexpected("Failed to open file via CreateFileW.");
+        if (file_handle == INVALID_HANDLE_VALUE) return Fail("Failed to open file via CreateFileW.");
 
         HANDLE mapping_handle = CreateFileMappingW(file_handle, nullptr, PAGE_READONLY, 0, 0, nullptr);
         if (mapping_handle == nullptr)
         {
             CloseHandle(file_handle);
-            return std::unexpected("Failed to create file mapping.");
+            return Fail("Failed to create file mapping.");
         }
 
         const auto* mapped_data = static_cast<const u8*>(MapViewOfFile(mapping_handle, FILE_MAP_READ, 0, 0, 0));
@@ -40,7 +38,7 @@ public:
         {
             CloseHandle(mapping_handle);
             CloseHandle(file_handle);
-            return std::unexpected("Failed to map view of file.");
+            return Fail("Failed to map view of file.");
         }
 
         return MemoryMappedFile(mapped_data, size, file_handle, mapping_handle);

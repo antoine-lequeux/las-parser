@@ -2,8 +2,6 @@
 
 #include "header_view.hpp"
 #include "las_data.hpp"
-#include <expected>
-#include <string>
 
 namespace laspar
 {
@@ -23,7 +21,7 @@ void iterate_points(const u8* file_data, const HeaderView& view, Func&& callback
 }
 
 template <typename Func>
-std::expected<void, std::string> dispatch_by_format(const u8* file_data, const HeaderView& view, Func&& callback)
+Result<void, String> dispatch_by_format(const u8* file_data, const HeaderView& view, Func&& callback)
 {
     u8 format_id = view.header->point_data_record_format & 0x3F;
 
@@ -41,7 +39,7 @@ std::expected<void, std::string> dispatch_by_format(const u8* file_data, const H
         case 9: iterate_points<LasPointFormat9>(file_data, view, std::forward<Func>(callback)); break;
         case 10: iterate_points<LasPointFormat10>(file_data, view, std::forward<Func>(callback)); break;
 
-        default: return std::unexpected("Unsupported point format: " + std::to_string(format_id));
+        default: return Fail("Unsupported point format: " + std::to_string(format_id));
     }
 
     return {};

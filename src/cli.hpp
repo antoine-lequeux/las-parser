@@ -2,7 +2,6 @@
 #include <chrono>
 #include <cmath>
 #include <lyra/lyra.hpp>
-#include <optional>
 #include <print>
 #include <sstream>
 #include <vector>
@@ -12,15 +11,16 @@
 #include "header_utils.hpp"
 #include "header_view.hpp"
 #include "memory_mapper.hpp"
+#include "types.hpp"
 
 template <>
-struct std::formatter<lyra::cli> : std::formatter<std::string_view>
+struct std::formatter<lyra::cli> : std::formatter<laspar::StringView>
 {
     auto format(const lyra::cli& cli, std::format_context& ctx) const
     {
         std::ostringstream ss;
         ss << cli;
-        return std::formatter<std::string_view>::format(ss.str(), ctx);
+        return std::formatter<laspar::StringView>::format(ss.str(), ctx);
     }
 };
 
@@ -93,7 +93,7 @@ inline void print_class_histogram(const std::vector<u64>& class_counts, u8 forma
     {
         if (class_counts[i] == 0) continue;
 
-        double ratio = static_cast<double>(class_counts[i]) / max_count;
+        f64 ratio = static_cast<f64>(class_counts[i]) / max_count;
         i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
         if (bar_width == 0) bar_width = 1;
 
@@ -105,12 +105,12 @@ inline void print_class_histogram(const std::vector<u64>& class_counts, u8 forma
 }
 
 inline void print_elev_histogram(
-    const std::vector<u64>& z_bins, u64 underflow_count, u64 overflow_count, double mean, double std_dev,
-    double hist_min, double hist_max, u16 max_bar_width = 100
+    const std::vector<u64>& z_bins, u64 underflow_count, u64 overflow_count, f64 mean, f64 std_dev, f64 hist_min,
+    f64 hist_max, u16 max_bar_width = 100
 )
 {
     const i32 num_bins = static_cast<i32>(z_bins.size());
-    const double bin_step = (hist_max > hist_min) ? (hist_max - hist_min) / num_bins : 1.0;
+    const f64 bin_step = (hist_max > hist_min) ? (hist_max - hist_min) / num_bins : 1.0;
 
     u64 max_count = std::max(underflow_count, overflow_count);
     for (u64 count : z_bins) max_count = std::max(max_count, count);
@@ -118,8 +118,8 @@ inline void print_elev_histogram(
 
     std::println("Elevation histogram (mean: {:.2f}, std dev: {:.2f}):", mean, std_dev);
 
-    auto print_bar = [&](std::string_view label, u64 count) {
-        double ratio = static_cast<double>(count) / max_count;
+    auto print_bar = [&](StringView label, u64 count) {
+        f64 ratio = static_cast<f64>(count) / max_count;
         i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
         if (count > 0 && bar_width == 0) bar_width = 1;
 
@@ -132,8 +132,8 @@ inline void print_elev_histogram(
 
     for (i32 i = 0; i < num_bins; i++)
     {
-        double bin_lo = hist_min + (i * bin_step);
-        double bin_hi = bin_lo + bin_step;
+        f64 bin_lo = hist_min + (i * bin_step);
+        f64 bin_hi = bin_lo + bin_step;
         print_bar(std::format("[{:.2f}, {:.2f}]", bin_lo, bin_hi), z_bins[i]);
     }
 
@@ -144,11 +144,11 @@ inline void print_elev_histogram(
 
 inline int launch_cli(int argc, const char** argv)
 {
-    std::string input_file;
-    std::string write_kept;
-    std::string write_dropped;
-    std::vector<int> keep_classes;
-    std::optional<double> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
+    String input_file;
+    String write_kept;
+    String write_dropped;
+    std::vector<i32> keep_classes;
+    Option<f64> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
     bool show_help = false;
     bool do_bbox = false;
     bool do_count = false;
@@ -157,6 +157,7 @@ inline int launch_cli(int argc, const char** argv)
     bool do_lint = false;
     u16 hist_width = 100;
     u16 nb_bins = 20;
+    u64 keep_every = 1;
 
     auto cli =
         lyra::help(show_help) | lyra::arg(input_file, "input_file")("The LAS file to process").required() |
@@ -180,6 +181,7 @@ inline int launch_cli(int argc, const char** argv)
         ) |
         lyra::opt(do_header)["-H"]["--header"]("Print the LAS header metadata") |
         lyra::opt(do_lint)["-L"]["--lint"]("Check the LAS header for corruption or mismatch") |
+        lyra::opt(keep_every, "N")["--keep-every"]("Keep 1 in every N points; can be used with other filters") |
         lyra::opt(hist_width, "width")["-w"]["--hist-width"]("Max histogram bar width in characters (default: 100)") |
         lyra::opt(nb_bins, "bins")["--bins"]("Number of bins in the elevation histogram (default: 20)");
 
@@ -198,19 +200,19 @@ inline int launch_cli(int argc, const char** argv)
     nb_bins = std::max(static_cast<u16>(1), nb_bins);
 
     std::array<u8, 256> filter_mask = {0};
-    std::array<double, 256> blend_mask = {0.0};
-    const double lane_pass = std::bit_cast<double>(~u64 {0});
+    std::array<f64, 256> blend_mask = {0.0};
+    const f64 lane_pass = std::bit_cast<f64>(~u64 {0});
 
     const bool has_class_filter = !keep_classes.empty();
     const bool has_coord_filter = opt_xmin.has_value() || opt_xmax.has_value() || opt_ymin.has_value() ||
                                   opt_ymax.has_value() || opt_zmin.has_value() || opt_zmax.has_value();
 
-    const double filter_xmin = opt_xmin.value_or(std::numeric_limits<double>::lowest());
-    const double filter_xmax = opt_xmax.value_or(std::numeric_limits<double>::max());
-    const double filter_ymin = opt_ymin.value_or(std::numeric_limits<double>::lowest());
-    const double filter_ymax = opt_ymax.value_or(std::numeric_limits<double>::max());
-    const double filter_zmin = opt_zmin.value_or(std::numeric_limits<double>::lowest());
-    const double filter_zmax = opt_zmax.value_or(std::numeric_limits<double>::max());
+    const f64 filter_xmin = opt_xmin.value_or(std::numeric_limits<f64>::lowest());
+    const f64 filter_xmax = opt_xmax.value_or(std::numeric_limits<f64>::max());
+    const f64 filter_ymin = opt_ymin.value_or(std::numeric_limits<f64>::lowest());
+    const f64 filter_ymax = opt_ymax.value_or(std::numeric_limits<f64>::max());
+    const f64 filter_zmin = opt_zmin.value_or(std::numeric_limits<f64>::lowest());
+    const f64 filter_zmax = opt_zmax.value_or(std::numeric_limits<f64>::max());
 
     if (has_class_filter)
     {
@@ -254,9 +256,9 @@ inline int launch_cli(int argc, const char** argv)
 
     struct TimingRecord
     {
-        std::string description;
-        double seconds;
-        std::string suffix = "";
+        String description;
+        f64 seconds;
+        String suffix = "";
     };
     std::vector<TimingRecord> timings;
 
@@ -271,7 +273,7 @@ inline int launch_cli(int argc, const char** argv)
         for (usize i = 0; i < size; i += page_size) (void)p1[i];
 
         auto end = std::chrono::high_resolution_clock::now();
-        timings.push_back({"Pre-loaded file data in", std::chrono::duration<double>(end - start).count()});
+        timings.push_back({"Pre-loaded file data in", std::chrono::duration<f64>(end - start).count()});
     }
 
     bool do_write_kept = !write_kept.empty();
@@ -311,22 +313,23 @@ inline int launch_cli(int argc, const char** argv)
 
     if (do_elev || do_count || do_bbox || do_write_kept || do_write_dropped)
     {
+        bool has_decimation = (keep_every > 1);
         ProcessResult pr = dispatch_avx2(
             has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, do_write_kept, do_write_dropped,
-            file_result->data(), view, filter_mask, blend_mask, classification_offset, classification_mask,
-            class_counts, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin, filter_zmax, &kept_writer,
-            &dropped_writer
+            has_decimation, file_result->data(), view, filter_mask, blend_mask, classification_offset,
+            classification_mask, class_counts, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin,
+            filter_zmax, keep_every, &kept_writer, &dropped_writer
         );
 
         const u64 points_processed = pr.points_processed;
 
         auto end_process = std::chrono::high_resolution_clock::now();
-        double total_process_seconds = std::chrono::duration<double>(end_process - start_process).count();
-        double compute_seconds = std::max(0.0001, total_process_seconds - pr.io_time_seconds);
+        f64 total_process_seconds = std::chrono::duration<f64>(end_process - start_process).count();
+        f64 compute_seconds = std::max(0.0001, total_process_seconds - pr.io_time_seconds);
 
-        double mp_s = (view.point_count / 1'000'000.0) / compute_seconds;
-        double gb_s = ((view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
-        std::string process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
+        f64 mp_s = (view.point_count / 1'000'000.0) / compute_seconds;
+        f64 gb_s = ((view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
+        String process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
         timings.push_back({std::format("Processed {} points in", points_processed), compute_seconds, process_suffix});
 
@@ -336,10 +339,10 @@ inline int launch_cli(int argc, const char** argv)
             if (do_write_kept) points_written += pr.points_processed;
             if (do_write_dropped) points_written += pr.points_dropped;
 
-            double io_mp_s = (points_written / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
-            double io_gb_s =
+            f64 io_mp_s = (points_written / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
+            f64 io_gb_s =
                 ((points_written * view.point_record_length) / 1'000'000'000.0) / std::max(0.0001, pr.io_time_seconds);
-            std::string io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
+            String io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
             timings.push_back(
                 {std::format("Wrote {} points to disk in", points_written), pr.io_time_seconds, io_suffix}
             );
@@ -347,33 +350,34 @@ inline int launch_cli(int argc, const char** argv)
 
         std::vector<u64> z_bins(nb_bins, 0);
         u64 underflow_count = 0, overflow_count = 0;
-        double elev_mean = 0, elev_std_dev = 0, hist_min = 0, hist_max = 0;
+        f64 elev_mean = 0, elev_std_dev = 0, hist_min = 0, hist_max = 0;
 
         if (do_elev && points_processed > 0)
         {
             auto start1 = std::chrono::high_resolution_clock::now();
-            const double n = static_cast<double>(points_processed);
+            const f64 n = static_cast<f64>(points_processed);
             elev_mean = pr.sum_z / n;
-            const double mean_sq = pr.sum_z2 / n;
-            const double variance = std::max(0.0, mean_sq - (elev_mean * elev_mean));
+            const f64 mean_sq = pr.sum_z2 / n;
+            const f64 variance = std::max(0.0, mean_sq - (elev_mean * elev_mean));
             elev_std_dev = std::sqrt(variance);
 
-            const double raw_min = elev_mean - 3.0 * elev_std_dev;
-            const double raw_max = elev_mean + 3.0 * elev_std_dev;
+            const f64 raw_min = elev_mean - 3.0 * elev_std_dev;
+            const f64 raw_max = elev_mean + 3.0 * elev_std_dev;
             hist_min = raw_min;
             hist_max = raw_max;
 
-            const double range = (hist_max > hist_min) ? hist_max - hist_min : 1.0;
-            const double bin_step = range / nb_bins;
+            const f64 range = (hist_max > hist_min) ? hist_max - hist_min : 1.0;
+            const f64 bin_step = range / nb_bins;
 
             dispatch_histogram_avx2(
-                has_class_filter, has_coord_filter, file_result->data(), view, filter_mask, blend_mask,
+                has_class_filter, has_coord_filter, has_decimation, file_result->data(), view, filter_mask, blend_mask,
                 classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax,
-                filter_zmin, filter_zmax, hist_min, hist_max, bin_step, nb_bins, z_bins, underflow_count, overflow_count
+                filter_zmin, filter_zmax, keep_every, hist_min, hist_max, bin_step, nb_bins, z_bins, underflow_count,
+                overflow_count
             );
 
             auto end1 = std::chrono::high_resolution_clock::now();
-            timings.push_back({"Computed elev. hist. in", std::chrono::duration<double>(end1 - start1).count()});
+            timings.push_back({"Computed elev. hist. in", std::chrono::duration<f64>(end1 - start1).count()});
         }
 
         if (do_write_kept || do_write_dropped)
@@ -398,7 +402,7 @@ inline int launch_cli(int argc, const char** argv)
             }
 
             auto end2 = std::chrono::high_resolution_clock::now();
-            timings.push_back({"Updated output files in", std::chrono::duration<double>(end2 - start2).count()});
+            timings.push_back({"Updated output files in", std::chrono::duration<f64>(end2 - start2).count()});
         }
 
         usize max_len = 0;
@@ -407,16 +411,16 @@ inline int launch_cli(int argc, const char** argv)
         for (const auto& t : timings)
         {
             usize dashes = max_len - t.description.size() + 3;
-            std::println("{} {} {:.4f} sec{}", t.description, std::string(dashes, '-'), t.seconds, t.suffix);
+            std::println("{} {} {:.4f} sec{}", t.description, String(dashes, '-'), t.seconds, t.suffix);
         }
         std::println();
 
         if (do_bbox && points_processed > 0)
         {
-            auto f = [](double v) { return std::format("{:.2f}", v); };
-            std::string xs0 = f(pr.bbox.min_x), xs1 = f(pr.bbox.max_x);
-            std::string ys0 = f(pr.bbox.min_y), ys1 = f(pr.bbox.max_y);
-            std::string zs0 = f(pr.bbox.min_z), zs1 = f(pr.bbox.max_z);
+            auto f = [](f64 v) { return std::format("{:.2f}", v); };
+            String xs0 = f(pr.bbox.min_x), xs1 = f(pr.bbox.max_x);
+            String ys0 = f(pr.bbox.min_y), ys1 = f(pr.bbox.max_y);
+            String zs0 = f(pr.bbox.min_z), zs1 = f(pr.bbox.max_z);
 
             usize w0 = std::max({xs0.size(), ys0.size(), zs0.size()});
             usize w1 = std::max({xs1.size(), ys1.size(), zs1.size()});
