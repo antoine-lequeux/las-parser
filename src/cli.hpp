@@ -204,8 +204,7 @@ inline int launch_cli(int argc, const char** argv)
     const f64 lane_pass = std::bit_cast<f64>(~u64 {0});
 
     const bool has_class_filter = !keep_classes.empty();
-    const bool has_coord_filter = opt_xmin.has_value() || opt_xmax.has_value() || opt_ymin.has_value() ||
-                                  opt_ymax.has_value() || opt_zmin.has_value() || opt_zmax.has_value();
+    const bool has_coord_filter = opt_xmin || opt_xmax || opt_ymin || opt_ymax || opt_zmin || opt_zmax;
 
     const f64 filter_xmin = opt_xmin.value_or(std::numeric_limits<f64>::lowest());
     const f64 filter_xmax = opt_xmax.value_or(std::numeric_limits<f64>::max());
@@ -244,7 +243,7 @@ inline int launch_cli(int argc, const char** argv)
         std::println(stderr, "Header Error: {}", header_result.error());
         return 1;
     }
-    const auto& view = header_result.value();
+    const auto& view = *header_result;
 
     if (do_header) print_header(*view.header, input_file);
 
