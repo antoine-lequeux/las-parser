@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 4.2)
 
 project(LAS_Parser VERSION 0.1.0 LANGUAGES CXX)
 
+enable_testing()
+
 # ---------------------------------------------------------
 # Global project configuration
 # ---------------------------------------------------------
@@ -121,3 +123,30 @@ target_compile_options(las_parser PRIVATE
     "$<$<CONFIG:Debug>:-O0>"
     "$<$<CONFIG:Debug>:-g3>"
 )
+
+# ---------------------------------------------------------
+# Test executable
+# ---------------------------------------------------------
+add_executable(las_test
+    src/test_main.cpp
+)
+
+target_link_libraries(las_test PRIVATE
+    eve::eve
+)
+
+target_compile_options(las_test PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wshadow
+    -Wnon-virtual-dtor
+)
+
+target_compile_options(las_test PRIVATE
+    "$<$<CONFIG:Release>:-O3>"
+    "$<$<CONFIG:Debug>:-O0>"
+    "$<$<CONFIG:Debug>:-g3>"
+)
+
+add_test(NAME las_test COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las")

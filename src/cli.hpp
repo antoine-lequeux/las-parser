@@ -199,8 +199,8 @@ inline int launch_cli(int argc, const char** argv)
 
     nb_bins = std::max(static_cast<u16>(1), nb_bins);
 
-    std::array<u8, 256> filter_mask = {0};
-    std::array<f64, 256> blend_mask = {0.0};
+    std::array<u8, 256> filter_mask = {};
+    std::array<f64, 256> blend_mask = {};
 
     const bool has_class_filter = !keep_classes.empty();
     const bool has_coord_filter = opt_xmin || opt_xmax || opt_ymin || opt_ymax || opt_zmin || opt_zmax;
