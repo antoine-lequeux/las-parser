@@ -112,7 +112,23 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         -Wextra
         -Wpedantic
         -Wshadow
+        -Wconversion
+        -Wsign-conversion
         -Wnon-virtual-dtor
+        -Wno-missing-field-initializers
+        -Wno-missing-braces
+        -Wold-style-cast
+        -Wdouble-promotion
+        -Wcast-align
+        -Wimplicit-fallthrough
+        -Wunreachable-code
+        -Wnull-dereference
+        -Wundef
+        -Wheader-hygiene
+        -Wunused-macros
+        -Wextra-semi
+        -Wzero-as-null-pointer-constant
+        -Wsuggest-override
     )
 
 endif()

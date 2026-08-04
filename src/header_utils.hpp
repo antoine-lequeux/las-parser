@@ -1,10 +1,10 @@
 #pragma once
 
 #include "las_data.hpp"
+#include <chrono>
 #include <format>
 #include <print>
 #include <vector>
-#include <windows.h>
 
 namespace laspar
 {
@@ -40,7 +40,7 @@ inline String format_date(u16 day_of_year, u16 year)
 
     const char* month_names[] = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"};
 
-    i32 month = 0;
+    u16 month = 0;
     i32 day = day_of_year;
     i32 days_in_month = get_days_in_month(month, year);
     while (month < 12 && day > days_in_month)
@@ -219,12 +219,16 @@ inline bool lint_header(const LasHeader& header, u64 file_size)
 
 inline void update_header_for_write(LasHeader& header, u64 point_count, const BoundingBox& bbox)
 {
-    SYSTEMTIME st;
-    GetSystemTime(&st);
+    auto now = std::chrono::system_clock::now();
+    auto today = std::chrono::time_point_cast<std::chrono::days>(now);
+    std::chrono::year_month_day ymd {today};
 
-    u16 year = st.wYear;
-    u16 day_of_year = st.wDay;
-    for (i32 i = 0; i < st.wMonth - 1; ++i) day_of_year += get_days_in_month(i, year);
+    u16 year = static_cast<u16>(i32 {ymd.year()});
+
+    std::chrono::sys_days first_day_of_year =
+        std::chrono::year_month_day {ymd.year(), std::chrono::January, std::chrono::day(1)};
+    u16 day_of_year = static_cast<u16>((today - first_day_of_year).count() + 1);
+
     header.creation_year = year;
     header.creation_day_of_year = day_of_year;
 

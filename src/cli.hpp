@@ -6,11 +6,11 @@
 #include <sstream>
 #include <vector>
 
-#include "avx2_processing.hpp"
 #include "file_writer.hpp"
 #include "header_utils.hpp"
 #include "header_view.hpp"
 #include "memory_mapper.hpp"
+#include "simd_processing.hpp"
 #include "types.hpp"
 
 template <>
@@ -29,7 +29,7 @@ namespace laspar
 
 // The classification for all point formats is defined here:
 // https://paulbourke.net/dataformats/laz/LAS_1_4_r15.pdf (p.19 & p.30).
-inline const char* get_asprs_class_name(u8 format_id, i32 class_id)
+inline const char* get_asprs_class_name(u8 format_id, usize class_id)
 {
     // Common classes.
     switch (class_id)
@@ -93,7 +93,7 @@ inline void print_class_histogram(const std::vector<u64>& class_counts, u8 forma
     {
         if (class_counts[i] == 0) continue;
 
-        f64 ratio = static_cast<f64>(class_counts[i]) / max_count;
+        f64 ratio = static_cast<f64>(class_counts[i]) / static_cast<f64>(max_count);
         i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
         if (bar_width == 0) bar_width = 1;
 
@@ -109,8 +109,8 @@ inline void print_elev_histogram(
     f64 hist_max, u16 max_bar_width = 100
 )
 {
-    const i32 num_bins = static_cast<i32>(z_bins.size());
-    const f64 bin_step = (hist_max > hist_min) ? (hist_max - hist_min) / num_bins : 1.0;
+    const usize num_bins = z_bins.size();
+    const f64 bin_step = (hist_max > hist_min) ? (hist_max - hist_min) / static_cast<f64>(num_bins) : 1.0;
 
     u64 max_count = std::max(underflow_count, overflow_count);
     for (u64 count : z_bins) max_count = std::max(max_count, count);
@@ -119,7 +119,7 @@ inline void print_elev_histogram(
     std::println("Elevation histogram (mean: {:.2f}, std dev: {:.2f}):", mean, std_dev);
 
     auto print_bar = [&](StringView label, u64 count) {
-        f64 ratio = static_cast<f64>(count) / max_count;
+        f64 ratio = static_cast<f64>(count) / static_cast<f64>(max_count);
         i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
         if (count > 0 && bar_width == 0) bar_width = 1;
 
@@ -130,9 +130,9 @@ inline void print_elev_histogram(
 
     if (underflow_count > 0) print_bar(std::format("< {:.2f} ", hist_min), underflow_count);
 
-    for (i32 i = 0; i < num_bins; i++)
+    for (usize i = 0; i < num_bins; i++)
     {
-        f64 bin_lo = hist_min + (i * bin_step);
+        f64 bin_lo = hist_min + (static_cast<f64>(i) * bin_step);
         f64 bin_hi = bin_lo + bin_step;
         print_bar(std::format("[{:.2f}, {:.2f}]", bin_lo, bin_hi), z_bins[i]);
     }
@@ -147,7 +147,7 @@ inline int launch_cli(int argc, const char** argv)
     String input_file;
     String write_kept;
     String write_dropped;
-    std::vector<i32> keep_classes;
+    std::vector<usize> keep_classes;
     Option<f64> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
     bool show_help = false;
     bool do_bbox = false;
@@ -214,9 +214,9 @@ inline int launch_cli(int argc, const char** argv)
 
     if (has_class_filter)
     {
-        for (i32 c : keep_classes)
+        for (usize c : keep_classes)
         {
-            if (c >= 0 && c < 256)
+            if (c < 256)
             {
                 filter_mask[c] = 1;
                 blend_mask[c] = lane_pass;
@@ -266,9 +266,14 @@ inline int launch_cli(int argc, const char** argv)
         // Use the data once so it's cached and the point processing doesn't hit a page fault.
         const u8* p = file_result->data() + view.point_data_offset;
         const u64 size = static_cast<u64>(view.point_count) * view.point_record_length;
+
+#ifdef _WIN32
         auto* p1 = static_cast<const volatile u8*>(p);
         const usize page_size = 4096;
         for (usize i = 0; i < size; i += page_size) (void)p1[i];
+#else
+        ::madvise(const_cast<void*>(static_cast<const void*>(p)), size, MADV_SEQUENTIAL | MADV_WILLNEED);
+#endif
 
         auto end = std::chrono::high_resolution_clock::now();
         timings.push_back({"Pre-loaded file data in", std::chrono::duration<f64>(end - start).count()});
@@ -312,7 +317,7 @@ inline int launch_cli(int argc, const char** argv)
     if (do_elev || do_count || do_bbox || do_write_kept || do_write_dropped)
     {
         bool has_decimation = (keep_every > 1);
-        ProcessResult pr = dispatch_avx2(
+        ProcessResult pr = process_points_simd(
             has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, do_write_kept, do_write_dropped,
             has_decimation, file_result->data(), view, filter_mask, blend_mask, classification_offset,
             classification_mask, class_counts, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin,
@@ -325,8 +330,8 @@ inline int launch_cli(int argc, const char** argv)
         f64 total_process_seconds = std::chrono::duration<f64>(end_process - start_process).count();
         f64 compute_seconds = std::max(0.0001, total_process_seconds - pr.io_time_seconds);
 
-        f64 mp_s = (view.point_count / 1'000'000.0) / compute_seconds;
-        f64 gb_s = ((view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
+        f64 mp_s = (static_cast<f64>(view.point_count) / 1'000'000.0) / compute_seconds;
+        f64 gb_s = (static_cast<f64>(view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
         String process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
         timings.push_back({std::format("Processed {} points in", points_processed), compute_seconds, process_suffix});
@@ -337,9 +342,9 @@ inline int launch_cli(int argc, const char** argv)
             if (do_write_kept) points_written += pr.points_processed;
             if (do_write_dropped) points_written += pr.points_dropped;
 
-            f64 io_mp_s = (points_written / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
-            f64 io_gb_s =
-                ((points_written * view.point_record_length) / 1'000'000'000.0) / std::max(0.0001, pr.io_time_seconds);
+            f64 io_mp_s = (static_cast<f64>(points_written) / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
+            f64 io_gb_s = (static_cast<f64>(points_written * view.point_record_length) / 1'000'000'000.0) /
+                          std::max(0.0001, pr.io_time_seconds);
             String io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
             timings.push_back(
                 {std::format("Wrote {} points to disk in", points_written), pr.io_time_seconds, io_suffix}
@@ -367,7 +372,7 @@ inline int launch_cli(int argc, const char** argv)
             const f64 range = (hist_max > hist_min) ? hist_max - hist_min : 1.0;
             const f64 bin_step = range / nb_bins;
 
-            dispatch_histogram_avx2(
+            build_elev_histogram_simd(
                 has_class_filter, has_coord_filter, has_decimation, file_result->data(), view, filter_mask, blend_mask,
                 classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax,
                 filter_zmin, filter_zmax, keep_every, hist_min, hist_max, bin_step, nb_bins, z_bins, underflow_count,

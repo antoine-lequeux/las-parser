@@ -1,7 +1,6 @@
 #pragma once
 
 #include "las_data.hpp"
-#include <cstdint>
 
 namespace laspar
 {

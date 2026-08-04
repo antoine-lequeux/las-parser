@@ -9,8 +9,8 @@
 namespace laspar
 {
 
-template <bool HasClassFilter, bool HasCoordFilter, bool DoCount, bool DoBBox, bool DoElev, bool HasDecimation>
 inline ProcessResult process_points_scalar(
+    bool has_class_filter, bool has_coord_filter, bool do_count, bool do_bbox, bool do_elev, bool has_decimation,
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask, u32 classification_offset,
     u8 classification_byte_mask, std::vector<u64>& out_class_counts, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin,
     f64 filter_ymax, f64 filter_zmin, f64 filter_zmax, u64 keep_every
@@ -49,21 +49,21 @@ inline ProcessResult process_points_scalar(
         bool passed = true;
         u8 c = 0;
 
-        if constexpr (HasClassFilter || DoCount) c = p[classification_offset] & classification_byte_mask;
+        if (has_class_filter || do_count) c = p[classification_offset] & classification_byte_mask;
 
-        if constexpr (HasClassFilter)
+        if (has_class_filter)
         {
             if (filter_mask[c] == 0) passed = false;
         }
 
-        if constexpr (HasCoordFilter)
+        if (has_coord_filter)
         {
             if (x < filter_xmin || x > filter_xmax) passed = false;
             if (y < filter_ymin || y > filter_ymax) passed = false;
             if (z < filter_zmin || z > filter_zmax) passed = false;
         }
 
-        if (passed && HasDecimation)
+        if (passed && has_decimation)
         {
             if (current_offset == 0)
                 passed = true;
@@ -76,8 +76,8 @@ inline ProcessResult process_points_scalar(
         if (passed)
         {
             passed_count++;
-            if constexpr (DoCount) out_class_counts[c]++;
-            if constexpr (DoBBox)
+            if (do_count) out_class_counts[c]++;
+            if (do_bbox)
             {
                 min_x = std::min(min_x, x);
                 max_x = std::max(max_x, x);
@@ -86,7 +86,7 @@ inline ProcessResult process_points_scalar(
                 min_z = std::min(min_z, z);
                 max_z = std::max(max_z, z);
             }
-            if constexpr (DoElev)
+            if (do_elev)
             {
                 sum_z += z;
                 sum_z2 += z * z;
@@ -100,13 +100,13 @@ inline ProcessResult process_points_scalar(
         p += stride;
     }
 
-    if constexpr (DoElev)
+    if (do_elev)
     {
         result.sum_z = sum_z;
         result.sum_z2 = sum_z2;
     }
 
-    if constexpr (DoBBox)
+    if (do_bbox)
     {
         result.bbox.min_x = min_x;
         result.bbox.max_x = max_x;
@@ -122,12 +122,11 @@ inline ProcessResult process_points_scalar(
     return result;
 }
 
-template <bool HasClassFilter, bool HasCoordFilter, bool HasDecimation>
 inline void build_elev_histogram_scalar(
-    const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask, u32 classification_offset,
-    u8 classification_byte_mask, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin,
-    f64 filter_zmax, u64 keep_every, f64 hist_min, f64 hist_max, f64 bin_step, i32 nb_bins,
-    std::vector<u64>& out_z_bins, u64& out_underflow, u64& out_overflow
+    bool has_class_filter, bool has_coord_filter, bool has_decimation, const u8* file_data, const HeaderView& view,
+    const std::array<u8, 256>& filter_mask, u32 classification_offset, u8 classification_byte_mask, f64 filter_xmin,
+    f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin, f64 filter_zmax, u64 keep_every, f64 hist_min,
+    f64 hist_max, f64 bin_step, i32 nb_bins, std::vector<u64>& out_z_bins, u64& out_underflow, u64& out_overflow
 )
 {
     const u8* p = file_data + view.point_data_offset;
@@ -149,20 +148,20 @@ inline void build_elev_histogram_scalar(
         bool passed = true;
         u8 c = 0;
 
-        if constexpr (HasClassFilter)
+        if (has_class_filter)
         {
             c = p[classification_offset] & classification_byte_mask;
             if (filter_mask[c] == 0) passed = false;
         }
 
-        if constexpr (HasCoordFilter)
+        if (has_coord_filter)
         {
             if (x < filter_xmin || x > filter_xmax) passed = false;
             if (y < filter_ymin || y > filter_ymax) passed = false;
             if (z < filter_zmin || z > filter_zmax) passed = false;
         }
 
-        if (passed && HasDecimation)
+        if (passed && has_decimation)
         {
             if (current_offset == 0)
                 passed = true;
@@ -179,7 +178,7 @@ inline void build_elev_histogram_scalar(
             else if (z >= hist_max)
                 out_overflow++;
             else
-                out_z_bins[std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1)]++;
+                out_z_bins[static_cast<usize>(std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1))]++;
         }
 
         p += stride;
