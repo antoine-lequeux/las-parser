@@ -14,7 +14,7 @@ namespace laspar
 template <std::unsigned_integral T>
 [[nodiscard]] constexpr u32 popcount(T val)
 {
-    return static_cast<u32>(std::popcount(val));
+    return as<u32>(std::popcount(val));
 }
 
 constexpr f64 lane_pass = std::bit_cast<f64>(~u64 {0});
@@ -542,9 +542,7 @@ inline void build_elev_histogram_simd(
                 else if (z >= hist_max)
                     out_overflow++;
                 else
-                    out_z_bins[static_cast<usize>(
-                        std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1)
-                    )]++;
+                    out_z_bins[as<usize>(std::min(as<i32>((z - hist_min) / bin_step), nb_bins - 1))]++;
             };
 
             if (mask & 1) bin_val(z_vals[0]);
@@ -584,7 +582,7 @@ inline void build_elev_histogram_simd(
             else if (z >= hist_max)
                 out_overflow++;
             else
-                out_z_bins[static_cast<usize>(std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1))]++;
+                out_z_bins[as<usize>(std::min(as<i32>((z - hist_min) / bin_step), nb_bins - 1))]++;
         }
 
         p += stride;

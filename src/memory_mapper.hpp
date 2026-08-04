@@ -53,7 +53,7 @@ public:
             return Fail("Failed to create file mapping.");
         }
 
-        const auto* mapped_data = static_cast<const u8*>(MapViewOfFile(mapping_handle, FILE_MAP_READ, 0, 0, 0));
+        const auto* mapped_data = as<const u8*>(MapViewOfFile(mapping_handle, FILE_MAP_READ, 0, 0, 0));
         if (mapped_data == nullptr)
         {
             CloseHandle(mapping_handle);
@@ -66,7 +66,7 @@ public:
 
         MapHandle mapping_handle = 0;
 
-        const auto* mapped_data = static_cast<const u8*>(::mmap(nullptr, size, PROT_READ, MAP_PRIVATE, file_handle, 0));
+        const auto* mapped_data = as<const u8*>(::mmap(nullptr, size, PROT_READ, MAP_PRIVATE, file_handle, 0));
         if (mapped_data == MAP_FAILED)
         {
             ::close(file_handle);
@@ -128,7 +128,7 @@ private:
         if (m_mapping_handle) CloseHandle(m_mapping_handle);
         if (m_file_handle != INVALID_FILE_HANDLE) CloseHandle(m_file_handle);
 #else
-        if (m_mapped_data) ::munmap(const_cast<void*>(static_cast<const void*>(m_mapped_data)), m_file_size);
+        if (m_mapped_data) ::munmap(const_cast<void*>(as<const void*>(m_mapped_data)), m_file_size);
         if (m_file_handle != INVALID_FILE_HANDLE) ::close(m_file_handle);
 #endif
 

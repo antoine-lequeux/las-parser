@@ -38,4 +38,10 @@ using Fail = std::unexpected<E>;
 template <typename T>
 using Option = std::optional<T>;
 
+template <typename To, typename From>
+[[nodiscard]] constexpr To as(From value)
+{
+    return static_cast<To>(value);
+}
+
 } // namespace laspar

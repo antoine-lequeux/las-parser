@@ -39,7 +39,7 @@ public:
 
     inline void write(const void* data, usize size)
     {
-        const u8* p = static_cast<const u8*>(data);
+        const u8* p = as<const u8*>(data);
         while (size > 0)
         {
             usize space = sizeof(m_buffer) - m_pos;
@@ -62,10 +62,10 @@ public:
             QueryPerformanceCounter(&start);
 
             DWORD written;
-            WriteFile(m_file, m_buffer, static_cast<DWORD>(m_pos), &written, nullptr);
+            WriteFile(m_file, m_buffer, as<DWORD>(m_pos), &written, nullptr);
 
             QueryPerformanceCounter(&end);
-            m_io_seconds += static_cast<f64>(end.QuadPart - start.QuadPart) / static_cast<f64>(m_qpf.QuadPart);
+            m_io_seconds += as<f64>(end.QuadPart - start.QuadPart) / as<f64>(m_qpf.QuadPart);
 #else
             struct timespec start, end;
             clock_gettime(CLOCK_MONOTONIC, &start);
@@ -84,7 +84,7 @@ public:
         flush();
 #ifdef _WIN32
         LARGE_INTEGER li;
-        li.QuadPart = static_cast<i64>(offset);
+        li.QuadPart = as<i64>(offset);
         SetFilePointerEx(m_file, li, nullptr, FILE_BEGIN);
 #else
         ::lseek(m_fd, offset, SEEK_SET);

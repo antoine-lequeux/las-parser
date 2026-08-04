@@ -152,7 +152,7 @@ inline void run_test_case(
 
     if (do_elev && res_scalar.points_processed > 0)
     {
-        const f64 n = static_cast<f64>(res_scalar.points_processed);
+        const f64 n = as<f64>(res_scalar.points_processed);
         f64 elev_mean = res_scalar.sum_z / n;
         f64 mean_sq = res_scalar.sum_z2 / n;
         f64 variance = std::max(0.0, mean_sq - (elev_mean * elev_mean));

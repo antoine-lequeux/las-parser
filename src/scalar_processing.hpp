@@ -42,9 +42,9 @@ inline ProcessResult process_points_scalar(
         i32 y_int = *reinterpret_cast<const i32*>(p + 4);
         i32 z_int = *reinterpret_cast<const i32*>(p + 8);
 
-        f64 x = static_cast<f64>(x_int) * view.header->x_scale_factor + view.header->x_offset;
-        f64 y = static_cast<f64>(y_int) * view.header->y_scale_factor + view.header->y_offset;
-        f64 z = static_cast<f64>(z_int) * view.header->z_scale_factor + view.header->z_offset;
+        f64 x = as<f64>(x_int) * view.header->x_scale_factor + view.header->x_offset;
+        f64 y = as<f64>(y_int) * view.header->y_scale_factor + view.header->y_offset;
+        f64 z = as<f64>(z_int) * view.header->z_scale_factor + view.header->z_offset;
 
         bool passed = true;
         u8 c = 0;
@@ -141,9 +141,9 @@ inline void build_elev_histogram_scalar(
         i32 y_int = *reinterpret_cast<const i32*>(p + 4);
         i32 z_int = *reinterpret_cast<const i32*>(p + 8);
 
-        f64 x = static_cast<f64>(x_int) * view.header->x_scale_factor + view.header->x_offset;
-        f64 y = static_cast<f64>(y_int) * view.header->y_scale_factor + view.header->y_offset;
-        f64 z = static_cast<f64>(z_int) * view.header->z_scale_factor + view.header->z_offset;
+        f64 x = as<f64>(x_int) * view.header->x_scale_factor + view.header->x_offset;
+        f64 y = as<f64>(y_int) * view.header->y_scale_factor + view.header->y_offset;
+        f64 z = as<f64>(z_int) * view.header->z_scale_factor + view.header->z_offset;
 
         bool passed = true;
         u8 c = 0;
@@ -178,7 +178,7 @@ inline void build_elev_histogram_scalar(
             else if (z >= hist_max)
                 out_overflow++;
             else
-                out_z_bins[static_cast<usize>(std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1))]++;
+                out_z_bins[as<usize>(std::min(as<i32>((z - hist_min) / bin_step), nb_bins - 1))]++;
         }
 
         p += stride;

@@ -209,7 +209,7 @@ inline ProcessResult process_points_avx2(
                 {
                     if (mask != 0)
                     {
-                        u32 num_passed = std::popcount(static_cast<u32>(mask));
+                        u32 num_passed = std::popcount(as<u32>(mask));
                         if (current_offset != 0 && current_offset + num_passed <= keep_every)
                         {
                             current_offset += num_passed;
@@ -229,7 +229,7 @@ inline ProcessResult process_points_avx2(
                                     if (current_offset == keep_every) current_offset = 0;
                                 }
                             }
-                            if (new_mask != static_cast<u32>(mask))
+                            if (new_mask != as<u32>(mask))
                             {
                                 mask = new_mask;
                                 blend = _mm256_load_pd(decimation_mask_lut_data[mask]);
@@ -238,7 +238,7 @@ inline ProcessResult process_points_avx2(
                     }
                 }
 
-                u32 pop = std::popcount(static_cast<u32>(mask));
+                u32 pop = std::popcount(as<u32>(mask));
                 passed_count += pop;
                 dropped_count += 4 - pop;
 
@@ -611,7 +611,7 @@ inline void build_elev_histogram_avx2(
             {
                 if (mask != 0)
                 {
-                    u32 num_passed = std::popcount(static_cast<u32>(mask));
+                    u32 num_passed = std::popcount(as<u32>(mask));
                     if (current_offset != 0 && current_offset + num_passed <= keep_every)
                     {
                         current_offset += num_passed;
@@ -647,7 +647,7 @@ inline void build_elev_histogram_avx2(
                 else if (z >= hist_max)
                     out_overflow++;
                 else
-                    out_z_bins[std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1)]++;
+                    out_z_bins[std::min(as<i32>((z - hist_min) / bin_step), nb_bins - 1)]++;
             };
 
             if (mask & 1) bin_val(z_vals[0]);
@@ -687,7 +687,7 @@ inline void build_elev_histogram_avx2(
             else if (z >= hist_max)
                 out_overflow++;
             else
-                out_z_bins[std::min(static_cast<i32>((z - hist_min) / bin_step), nb_bins - 1)]++;
+                out_z_bins[std::min(as<i32>((z - hist_min) / bin_step), nb_bins - 1)]++;
         }
 
         p += stride;

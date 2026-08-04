@@ -93,8 +93,8 @@ inline void print_class_histogram(const std::vector<u64>& class_counts, u8 forma
     {
         if (class_counts[i] == 0) continue;
 
-        f64 ratio = static_cast<f64>(class_counts[i]) / static_cast<f64>(max_count);
-        i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
+        f64 ratio = as<f64>(class_counts[i]) / as<f64>(max_count);
+        i32 bar_width = as<i32>(std::round(ratio * max_bar_width));
         if (bar_width == 0) bar_width = 1;
 
         std::print("  {:<6} {:28} | ", std::format("[C{}]", i), get_asprs_class_name(format_id, i));
@@ -110,7 +110,7 @@ inline void print_elev_histogram(
 )
 {
     const usize num_bins = z_bins.size();
-    const f64 bin_step = (hist_max > hist_min) ? (hist_max - hist_min) / static_cast<f64>(num_bins) : 1.0;
+    const f64 bin_step = (hist_max > hist_min) ? (hist_max - hist_min) / as<f64>(num_bins) : 1.0;
 
     u64 max_count = std::max(underflow_count, overflow_count);
     for (u64 count : z_bins) max_count = std::max(max_count, count);
@@ -119,8 +119,8 @@ inline void print_elev_histogram(
     std::println("Elevation histogram (mean: {:.2f}, std dev: {:.2f}):", mean, std_dev);
 
     auto print_bar = [&](StringView label, u64 count) {
-        f64 ratio = static_cast<f64>(count) / static_cast<f64>(max_count);
-        i32 bar_width = static_cast<i32>(std::round(ratio * max_bar_width));
+        f64 ratio = as<f64>(count) / as<f64>(max_count);
+        i32 bar_width = as<i32>(std::round(ratio * max_bar_width));
         if (count > 0 && bar_width == 0) bar_width = 1;
 
         std::print("  {:>16} | ", label);
@@ -132,7 +132,7 @@ inline void print_elev_histogram(
 
     for (usize i = 0; i < num_bins; i++)
     {
-        f64 bin_lo = hist_min + (static_cast<f64>(i) * bin_step);
+        f64 bin_lo = hist_min + (as<f64>(i) * bin_step);
         f64 bin_hi = bin_lo + bin_step;
         print_bar(std::format("[{:.2f}, {:.2f}]", bin_lo, bin_hi), z_bins[i]);
     }
@@ -197,7 +197,7 @@ inline int launch_cli(int argc, const char** argv)
         return 0;
     }
 
-    nb_bins = std::max(static_cast<u16>(1), nb_bins);
+    nb_bins = std::max(as<u16>(1), nb_bins);
 
     std::array<u8, 256> filter_mask = {};
     std::array<f64, 256> blend_mask = {};
@@ -265,14 +265,14 @@ inline int launch_cli(int argc, const char** argv)
 
         // Use the data once so it's cached and the point processing doesn't hit a page fault.
         const u8* p = file_result->data() + view.point_data_offset;
-        const u64 size = static_cast<u64>(view.point_count) * view.point_record_length;
+        const u64 size = as<u64>(view.point_count) * view.point_record_length;
 
 #ifdef _WIN32
-        auto* p1 = static_cast<const volatile u8*>(p);
+        auto* p1 = as<const volatile u8*>(p);
         const usize page_size = 4096;
         for (usize i = 0; i < size; i += page_size) (void)p1[i];
 #else
-        ::madvise(const_cast<void*>(static_cast<const void*>(p)), size, MADV_SEQUENTIAL | MADV_WILLNEED);
+        ::madvise(const_cast<void*>(as<const void*>(p)), size, MADV_SEQUENTIAL | MADV_WILLNEED);
 #endif
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -330,8 +330,8 @@ inline int launch_cli(int argc, const char** argv)
         f64 total_process_seconds = std::chrono::duration<f64>(end_process - start_process).count();
         f64 compute_seconds = std::max(0.0001, total_process_seconds - pr.io_time_seconds);
 
-        f64 mp_s = (static_cast<f64>(view.point_count) / 1'000'000.0) / compute_seconds;
-        f64 gb_s = (static_cast<f64>(view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
+        f64 mp_s = (as<f64>(view.point_count) / 1'000'000.0) / compute_seconds;
+        f64 gb_s = (as<f64>(view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
         String process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
         timings.push_back({std::format("Processed {} points in", points_processed), compute_seconds, process_suffix});
@@ -342,8 +342,8 @@ inline int launch_cli(int argc, const char** argv)
             if (do_write_kept) points_written += pr.points_processed;
             if (do_write_dropped) points_written += pr.points_dropped;
 
-            f64 io_mp_s = (static_cast<f64>(points_written) / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
-            f64 io_gb_s = (static_cast<f64>(points_written * view.point_record_length) / 1'000'000'000.0) /
+            f64 io_mp_s = (as<f64>(points_written) / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
+            f64 io_gb_s = (as<f64>(points_written * view.point_record_length) / 1'000'000'000.0) /
                           std::max(0.0001, pr.io_time_seconds);
             String io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
             timings.push_back(
@@ -358,7 +358,7 @@ inline int launch_cli(int argc, const char** argv)
         if (do_elev && points_processed > 0)
         {
             auto start1 = std::chrono::high_resolution_clock::now();
-            const f64 n = static_cast<f64>(points_processed);
+            const f64 n = as<f64>(points_processed);
             elev_mean = pr.sum_z / n;
             const f64 mean_sq = pr.sum_z2 / n;
             const f64 variance = std::max(0.0, mean_sq - (elev_mean * elev_mean));

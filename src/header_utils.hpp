@@ -74,11 +74,9 @@ inline void print_header(const LasHeader& header, String file_name)
     {
         String guid_str = std::format(
             "{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}", header.guid_data_1,
-            header.guid_data_2, header.guid_data_3, static_cast<u8>(header.guid_data_4[0]),
-            static_cast<u8>(header.guid_data_4[1]), static_cast<u8>(header.guid_data_4[2]),
-            static_cast<u8>(header.guid_data_4[3]), static_cast<u8>(header.guid_data_4[4]),
-            static_cast<u8>(header.guid_data_4[5]), static_cast<u8>(header.guid_data_4[6]),
-            static_cast<u8>(header.guid_data_4[7])
+            header.guid_data_2, header.guid_data_3, as<u8>(header.guid_data_4[0]), as<u8>(header.guid_data_4[1]),
+            as<u8>(header.guid_data_4[2]), as<u8>(header.guid_data_4[3]), as<u8>(header.guid_data_4[4]),
+            as<u8>(header.guid_data_4[5]), as<u8>(header.guid_data_4[6]), as<u8>(header.guid_data_4[7])
         );
         std::println(" Project GUID:       {}", guid_str);
     }
@@ -223,11 +221,11 @@ inline void update_header_for_write(LasHeader& header, u64 point_count, const Bo
     auto today = std::chrono::time_point_cast<std::chrono::days>(now);
     std::chrono::year_month_day ymd {today};
 
-    u16 year = static_cast<u16>(i32 {ymd.year()});
+    u16 year = as<u16>(i32 {ymd.year()});
 
     std::chrono::sys_days first_day_of_year =
         std::chrono::year_month_day {ymd.year(), std::chrono::January, std::chrono::day(1)};
-    u16 day_of_year = static_cast<u16>((today - first_day_of_year).count() + 1);
+    u16 day_of_year = as<u16>((today - first_day_of_year).count() + 1);
 
     header.creation_year = year;
     header.creation_day_of_year = day_of_year;
@@ -236,7 +234,7 @@ inline void update_header_for_write(LasHeader& header, u64 point_count, const Bo
     if (point_count > std::numeric_limits<u32>::max())
         header.legacy_number_of_point_records = 0;
     else
-        header.legacy_number_of_point_records = static_cast<u32>(point_count);
+        header.legacy_number_of_point_records = as<u32>(point_count);
 
     // Tracking them during AVX2 processing is too expensive, so we return empty arrays.
     header.legacy_number_of_points_by_return.fill(0);

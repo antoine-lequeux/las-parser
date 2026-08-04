@@ -34,7 +34,7 @@ inline Result<HeaderView, StringView> validate_las_header(const u8* data, usize 
     u16 point_len = header->point_data_record_length;
     if (point_len == 0) return Fail("Corrupt header (point record length cannot be 0).");
 
-    u64 required_bytes = static_cast<uint64_t>(header->offset_to_point_data) + (total_points * point_len);
+    u64 required_bytes = as<uint64_t>(header->offset_to_point_data) + (total_points * point_len);
     if (file_size < required_bytes)
         return Fail("Truncated file (file size is smaller than expected point data bounds).");
 
