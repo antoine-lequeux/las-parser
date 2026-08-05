@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        build_type: [Release]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download sample LAS file
+      run: curl -L https://github.com/laspy/laspy/raw/master/tests/data/simple1_4.las -o test.las
+
+    - name: Setup modern C++ compilers
+      run: |
+        if [ "${{ runner.os }}" = "Linux" ]; then
+          sudo apt-get update
+          sudo apt-get install -y g++-14
+          echo "CXX=g++-14" >> $GITHUB_ENV
+        elif [ "${{ runner.os }}" = "macOS" ]; then
+          brew install llvm@18
+          echo "CXX=$(brew --prefix llvm@18)/bin/clang++" >> $GITHUB_ENV
+        fi
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
+
+    - name: Test
+      working-directory: build
+      run: ctest -C ${{ matrix.build_type }} --output-on-failure

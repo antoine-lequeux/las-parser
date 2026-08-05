@@ -1,14 +1,8 @@
 #pragma once
 
+#include "platform.hpp"
 #include "types.hpp"
 #include <cstring>
-#ifdef _WIN32
-    #include <windows.h>
-#else
-    #include <fcntl.h>
-    #include <time.h>
-    #include <unistd.h>
-#endif
 
 namespace laspar
 {
@@ -17,24 +11,14 @@ class BufferedFileWriter
 {
 public:
 
-    BufferedFileWriter()
-    {
-#ifdef _WIN32
-        QueryPerformanceFrequency(&m_qpf);
-#endif
-    }
+    BufferedFileWriter() = default;
 
     ~BufferedFileWriter() { close(); }
 
     bool open(const String& path)
     {
-#ifdef _WIN32
-        m_file = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        return m_file != INVALID_HANDLE_VALUE;
-#else
-        m_fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-        return m_fd != -1;
-#endif
+        m_file = platform::open_file_write(path);
+        return platform::is_valid_file_handle(m_file);
     }
 
     inline void write(const void* data, usize size)
@@ -57,24 +41,10 @@ public:
     {
         if (m_pos > 0 && is_open())
         {
-#ifdef _WIN32
-            LARGE_INTEGER start, end;
-            QueryPerformanceCounter(&start);
-
-            DWORD written;
-            WriteFile(m_file, m_buffer, as<DWORD>(m_pos), &written, nullptr);
-
-            QueryPerformanceCounter(&end);
-            m_io_seconds += as<f64>(end.QuadPart - start.QuadPart) / as<f64>(m_qpf.QuadPart);
-#else
-            struct timespec start, end;
-            clock_gettime(CLOCK_MONOTONIC, &start);
-
-            ::write(m_fd, m_buffer, m_pos);
-
-            clock_gettime(CLOCK_MONOTONIC, &end);
-            m_io_seconds += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-#endif
+            f64 start = std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            platform::write_file(m_file, m_buffer, m_pos);
+            m_io_seconds +=
+                std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count() - start;
             m_pos = 0;
         }
     }
@@ -82,51 +52,25 @@ public:
     void seek(u64 offset)
     {
         flush();
-#ifdef _WIN32
-        LARGE_INTEGER li;
-        li.QuadPart = as<i64>(offset);
-        SetFilePointerEx(m_file, li, nullptr, FILE_BEGIN);
-#else
-        ::lseek(m_fd, offset, SEEK_SET);
-#endif
+        platform::seek_file(m_file, offset);
     }
 
     void close()
     {
         flush();
-#ifdef _WIN32
-        if (m_file != INVALID_HANDLE_VALUE)
+        if (platform::is_valid_file_handle(m_file))
         {
-            CloseHandle(m_file);
-            m_file = INVALID_HANDLE_VALUE;
+            platform::close_file(m_file);
+            m_file = platform::INVALID_FILE_HANDLE;
         }
-#else
-        if (m_fd != -1)
-        {
-            ::close(m_fd);
-            m_fd = -1;
-        }
-#endif
     }
 
-    bool is_open() const
-    {
-#ifdef _WIN32
-        return m_file != INVALID_HANDLE_VALUE;
-#else
-        return m_fd != -1;
-#endif
-    }
+    bool is_open() const { return platform::is_valid_file_handle(m_file); }
     f64 get_io_seconds() const { return m_io_seconds; }
 
 private:
 
-#ifdef _WIN32
-    HANDLE m_file = INVALID_HANDLE_VALUE;
-    LARGE_INTEGER m_qpf;
-#else
-    i32 m_fd = -1;
-#endif
+    platform::FileHandle m_file = platform::INVALID_FILE_HANDLE;
     u8 m_buffer[65536];
     usize m_pos = 0;
     f64 m_io_seconds = 0.0;

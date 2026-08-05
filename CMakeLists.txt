@@ -1,5 +1,4 @@
-cmake_minimum_required(VERSION 4.2)
-
+cmake_minimum_required(VERSION 3.20)
 project(LAS_Parser VERSION 0.1.0 LANGUAGES CXX)
 
 enable_testing()
@@ -36,20 +35,49 @@ endif()
 # Global compiler flags
 # ---------------------------------------------------------
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     # Disable exceptions and RTTI globally so dependencies build without them
     add_compile_options(
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>"
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>"
     )
 
+    option(USE_AVX512 "Compile with AVX-512 support" OFF)
+
     # Architecture / SIMD baseline
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
-        # Includes all modern windows/linux computers 
-        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-march=x86-64-v3>)
+        if(USE_AVX512)
+            # Includes all modern x86-64 computers supporting AVX-512
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-march=x86-64-v4>)
+            message(STATUS "> x86_64 architecture detected (AVX-512 / x86-64-v4)")
+        else()
+            # Includes all modern x86-64 computers
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-march=x86-64-v3>)
+            message(STATUS "> x86_64 architecture detected (AVX2 / x86-64-v3)")
+        endif()
     elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
         # Includes all Silicon Apple chips from M1 to M5)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-mcpu=apple-m1>)
+        message(STATUS "> Apple Silicon architecture detected (ARM64 / NEON)")
+    endif()
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    # Disable exceptions and RTTI globally
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:/EHs-c->"
+        "$<$<COMPILE_LANGUAGE:CXX>:/GR->"
+        "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>"
+    )
+
+    option(USE_AVX512 "Compile with AVX-512 support" OFF)
+
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+        if(USE_AVX512)
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/arch:AVX512>)
+            message(STATUS "> x86_64 architecture detected (AVX-512 / x86-64-v4)")
+        else()
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/arch:AVX2>)
+            message(STATUS "> x86_64 architecture detected (AVX2 / x86-64-v3)")
+        endif()
     endif()
 endif()
 
@@ -79,7 +107,7 @@ FetchContent_Declare(
 # Silence all warnings during third-party library compilation.
 set(BACKUP_C_FLAGS "${CMAKE_C_FLAGS}")
 set(BACKUP_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 endif()
@@ -104,7 +132,7 @@ target_link_libraries(las_parser PRIVATE
 # ---------------------------------------------------------
 # Executable-only optimizations & strict warnings
 # ---------------------------------------------------------
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 
     # Warnings
     target_compile_options(las_parser PRIVATE
@@ -124,7 +152,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         -Wunreachable-code
         -Wnull-dereference
         -Wundef
-        -Wheader-hygiene
         -Wunused-macros
         -Wextra-semi
         -Wzero-as-null-pointer-constant
@@ -133,9 +160,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
 endif()
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(las_parser PRIVATE
+        -Wheader-hygiene
+    )
+
+endif()
+
 # Optimization flags
 target_compile_options(las_parser PRIVATE
-    "$<$<CONFIG:Release>:-O3>"
     "$<$<CONFIG:Debug>:-O0>"
     "$<$<CONFIG:Debug>:-g3>"
 )
@@ -152,15 +185,6 @@ target_link_libraries(las_test PRIVATE
 )
 
 target_compile_options(las_test PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wshadow
-    -Wnon-virtual-dtor
-)
-
-target_compile_options(las_test PRIVATE
-    "$<$<CONFIG:Release>:-O3>"
     "$<$<CONFIG:Debug>:-O0>"
     "$<$<CONFIG:Debug>:-g3>"
 )

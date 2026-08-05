@@ -10,19 +10,25 @@
 #include "header_utils.hpp"
 #include "header_view.hpp"
 #include "memory_mapper.hpp"
+#include "platform.hpp"
 #include "simd_processing.hpp"
 #include "types.hpp"
 
-template <>
-struct std::formatter<lyra::cli> : std::formatter<laspar::StringView>
+namespace std
 {
-    auto format(const lyra::cli& cli, std::format_context& ctx) const
+template <>
+struct formatter<lyra::cli>
+{
+    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+
+    auto format(const lyra::cli& cli, auto& ctx) const
     {
         std::ostringstream ss;
         ss << cli;
-        return std::formatter<laspar::StringView>::format(ss.str(), ctx);
+        return std::format_to(ctx.out(), "{}", ss.str());
     }
 };
+} // namespace std
 
 namespace laspar
 {
@@ -99,7 +105,7 @@ inline void print_class_histogram(const std::vector<u64>& class_counts, u8 forma
 
         std::print("  {:<6} {:28} | ", std::format("[C{}]", i), get_asprs_class_name(format_id, i));
         for (i32 b = 0; b < bar_width; ++b) std::print("█");
-        std::println(" {:L}", class_counts[i]);
+        std::println(" {}", fmt_num(class_counts[i]));
     }
     std::println("");
 }
@@ -125,7 +131,7 @@ inline void print_elev_histogram(
 
         std::print("  {:>16} | ", label);
         for (i32 b = 0; b < bar_width; ++b) std::print("█");
-        std::println(" {:L}", count);
+        std::println(" {}", fmt_num(count));
     };
 
     if (underflow_count > 0) print_bar(std::format("< {:.2f} ", hist_min), underflow_count);
@@ -267,13 +273,7 @@ inline int launch_cli(int argc, const char** argv)
         const u8* p = file_result->data() + view.point_data_offset;
         const u64 size = as<u64>(view.point_count) * view.point_record_length;
 
-#ifdef _WIN32
-        auto* p1 = as<const volatile u8*>(p);
-        const usize page_size = 4096;
-        for (usize i = 0; i < size; i += page_size) (void)p1[i];
-#else
-        ::madvise(const_cast<void*>(as<const void*>(p)), size, MADV_SEQUENTIAL | MADV_WILLNEED);
-#endif
+        platform::prefetch_memory(p, size);
 
         auto end = std::chrono::high_resolution_clock::now();
         timings.push_back({"Pre-loaded file data in", std::chrono::duration<f64>(end - start).count()});
@@ -416,7 +416,7 @@ inline int launch_cli(int argc, const char** argv)
             usize dashes = max_len - t.description.size() + 3;
             std::println("{} {} {:.4f} sec{}", t.description, String(dashes, '-'), t.seconds, t.suffix);
         }
-        std::println();
+        std::println("");
 
         if (do_bbox && points_processed > 0)
         {

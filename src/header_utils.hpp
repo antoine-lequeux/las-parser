@@ -9,6 +9,19 @@
 namespace laspar
 {
 
+struct NumberFormat : std::numpunct<char>
+{
+    char do_thousands_sep() const override { return ','; }
+    String do_grouping() const override { return "\3"; }
+};
+
+template <typename T>
+inline String fmt_num(T value)
+{
+    static const std::locale comma_loc(std::locale::classic(), new NumberFormat);
+    return std::format(comma_loc, "{:L}", value);
+}
+
 template <usize N>
 inline String trim_char_array(const std::array<char, N>& arr)
 {
@@ -96,7 +109,7 @@ inline void print_header(const LasHeader& header, String file_name)
                                 ? header.number_of_point_records
                                 : header.legacy_number_of_point_records;
 
-    std::println(" Total points:       {:L}", point_count);
+    std::println(" Total points:       {}", fmt_num(point_count));
 
     std::println("--------------------------------------------------------");
     std::println(

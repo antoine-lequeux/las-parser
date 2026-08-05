@@ -151,7 +151,12 @@ inline ProcessResult process_points_simd(
             if (has_class_filter || has_coord_filter)
             {
                 wl64 blend = eve::bit_cast(blend_val, eve::as<wl64>());
+#if defined(__x86_64__) || defined(_M_X64)
                 u32 mask = eve::top_bits(blend).as_int();
+#else
+                u32 mask =
+                    (blend.get(0) ? 1 : 0) | (blend.get(1) ? 2 : 0) | (blend.get(2) ? 4 : 0) | (blend.get(3) ? 8 : 0);
+#endif
 
                 if (has_decimation)
                 {
@@ -500,7 +505,11 @@ inline void build_elev_histogram_simd(
                     (vx >= vxmin) && (vx <= vxmax) && (vy >= vymin) && (vy <= vymax) && (vz >= vzmin) && (vz <= vzmax);
             }
 
+#if defined(__x86_64__) || defined(_M_X64)
             mask = eve::top_bits(blend).as_int();
+#else
+            mask = (blend.get(0) ? 1 : 0) | (blend.get(1) ? 2 : 0) | (blend.get(2) ? 4 : 0) | (blend.get(3) ? 8 : 0);
+#endif
 
             if (has_decimation)
             {
