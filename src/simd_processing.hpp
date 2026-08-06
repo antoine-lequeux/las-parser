@@ -159,7 +159,7 @@ inline ProcessResult process_points_simd(
 
             if (has_class_filter || has_coord_filter)
             {
-                wl64 blend = eve::bit_cast(blend_val, eve::as<wl64>());
+                wl64 blend = (blend_val != zero_pd);
                 u32 mask = get_blend_mask(blend);
 
                 if (has_decimation)
@@ -189,7 +189,7 @@ inline ProcessResult process_points_simd(
                             if (new_mask != mask)
                             {
                                 mask = new_mask;
-                                blend = eve::bit_cast(wf64(&decimation_mask_lut_data[mask][0]), eve::as<wl64>());
+                                blend = wf64(&decimation_mask_lut_data[mask][0]) != zero_pd;
                             }
                         }
                     }
@@ -492,12 +492,12 @@ inline void build_elev_histogram_simd(
                 wf64 class_blend {blend_mask[c0], blend_mask[c1], blend_mask[c2], blend_mask[c3]};
                 wl64 coord_blend =
                     (vx >= vxmin) && (vx <= vxmax) && (vy >= vymin) && (vy <= vymax) && (vz >= vzmin) && (vz <= vzmax);
-                blend = coord_blend && eve::bit_cast(class_blend, eve::as<wl64>());
+                blend = coord_blend && (class_blend != 0.0);
             }
             else if (has_class_filter)
             {
                 wf64 class_blend {blend_mask[c0], blend_mask[c1], blend_mask[c2], blend_mask[c3]};
-                blend = eve::bit_cast(class_blend, eve::as<wl64>());
+                blend = (class_blend != 0.0);
             }
             else if (has_coord_filter)
             {
