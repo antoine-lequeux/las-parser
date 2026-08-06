@@ -38,6 +38,19 @@ alignas(32) inline const f64 decimation_mask_lut_data[16][4] = {
     {lane_pass, lane_pass, lane_pass, lane_pass}
 };
 
+using wf64 = eve::wide<f64, eve::fixed<4>>;
+using wi32 = eve::wide<i32, eve::fixed<4>>;
+using wl64 = eve::logical<wf64>;
+
+[[nodiscard]] inline u32 get_blend_mask(const wl64& blend)
+{
+#if defined(__x86_64__) || defined(_M_X64)
+    return eve::top_bits(blend).as_int();
+#else
+    return (blend.get(0) ? 1 : 0) | (blend.get(1) ? 2 : 0) | (blend.get(2) ? 4 : 0) | (blend.get(3) ? 8 : 0);
+#endif
+}
+
 inline ProcessResult process_points_simd(
     bool has_class_filter, bool has_coord_filter, bool do_count, bool do_bbox, bool do_elev, bool write_kept,
     bool write_dropped, bool has_decimation, const u8* file_data, const HeaderView& view,
@@ -47,10 +60,6 @@ inline ProcessResult process_points_simd(
     BufferedFileWriter* dropped_writer
 )
 {
-    using wf64 = eve::wide<f64, eve::fixed<4>>;
-    using wi32 = eve::wide<i32, eve::fixed<4>>;
-    using wl64 = eve::logical<wf64>;
-
     ProcessResult result {};
     u64 current_offset = 0;
 
@@ -151,12 +160,7 @@ inline ProcessResult process_points_simd(
             if (has_class_filter || has_coord_filter)
             {
                 wl64 blend = eve::bit_cast(blend_val, eve::as<wl64>());
-#if defined(__x86_64__) || defined(_M_X64)
-                u32 mask = eve::top_bits(blend).as_int();
-#else
-                u32 mask =
-                    (blend.get(0) ? 1 : 0) | (blend.get(1) ? 2 : 0) | (blend.get(2) ? 4 : 0) | (blend.get(3) ? 8 : 0);
-#endif
+                u32 mask = get_blend_mask(blend);
 
                 if (has_decimation)
                 {
@@ -433,10 +437,6 @@ inline void build_elev_histogram_simd(
     std::vector<u64>& out_z_bins, u64& out_underflow, u64& out_overflow
 )
 {
-    using wf64 = eve::wide<f64, eve::fixed<4>>;
-    using wi32 = eve::wide<i32, eve::fixed<4>>;
-    using wl64 = eve::logical<wf64>;
-
     u64 current_offset = 0;
     const wf64 x_scale {view.header->x_scale_factor};
     const wf64 y_scale {view.header->y_scale_factor};
@@ -505,11 +505,7 @@ inline void build_elev_histogram_simd(
                     (vx >= vxmin) && (vx <= vxmax) && (vy >= vymin) && (vy <= vymax) && (vz >= vzmin) && (vz <= vzmax);
             }
 
-#if defined(__x86_64__) || defined(_M_X64)
-            mask = eve::top_bits(blend).as_int();
-#else
-            mask = (blend.get(0) ? 1 : 0) | (blend.get(1) ? 2 : 0) | (blend.get(2) ? 4 : 0) | (blend.get(3) ? 8 : 0);
-#endif
+            mask = get_blend_mask(blend);
 
             if (has_decimation)
             {
