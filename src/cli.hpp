@@ -124,7 +124,7 @@ inline void print_elev_histogram(
 
     std::println("Elevation histogram (mean: {:.2f}, std dev: {:.2f}):", mean, std_dev);
 
-    auto print_bar = [&](StringView label, u64 count) {
+    auto print_bar = [&](std::string_view label, u64 count) {
         f64 ratio = as<f64>(count) / as<f64>(max_count);
         i32 bar_width = as<i32>(std::round(ratio * max_bar_width));
         if (count > 0 && bar_width == 0) bar_width = 1;
@@ -150,11 +150,11 @@ inline void print_elev_histogram(
 
 inline int launch_cli(int argc, const char** argv)
 {
-    String input_file;
-    String write_kept;
-    String write_dropped;
+    std::string input_file;
+    std::string write_kept;
+    std::string write_dropped;
     std::vector<usize> keep_classes;
-    Option<f64> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
+    std::optional<f64> opt_xmin, opt_xmax, opt_ymin, opt_ymax, opt_zmin, opt_zmax;
     bool show_help = false;
     bool do_bbox = false;
     bool do_count = false;
@@ -260,9 +260,9 @@ inline int launch_cli(int argc, const char** argv)
 
     struct TimingRecord
     {
-        String description;
+        std::string description;
         f64 seconds;
-        String suffix = "";
+        std::string suffix = "";
     };
     std::vector<TimingRecord> timings;
 
@@ -332,7 +332,7 @@ inline int launch_cli(int argc, const char** argv)
 
         f64 mp_s = (as<f64>(view.point_count) / 1'000'000.0) / compute_seconds;
         f64 gb_s = (as<f64>(view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
-        String process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
+        std::string process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
         timings.push_back({std::format("Processed {} points in", points_processed), compute_seconds, process_suffix});
 
@@ -345,7 +345,7 @@ inline int launch_cli(int argc, const char** argv)
             f64 io_mp_s = (as<f64>(points_written) / 1'000'000.0) / std::max(0.0001, pr.io_time_seconds);
             f64 io_gb_s = (as<f64>(points_written * view.point_record_length) / 1'000'000'000.0) /
                           std::max(0.0001, pr.io_time_seconds);
-            String io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
+            std::string io_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", io_mp_s, io_gb_s);
             timings.push_back(
                 {std::format("Wrote {} points to disk in", points_written), pr.io_time_seconds, io_suffix}
             );
@@ -414,16 +414,16 @@ inline int launch_cli(int argc, const char** argv)
         for (const auto& t : timings)
         {
             usize dashes = max_len - t.description.size() + 3;
-            std::println("{} {} {:.4f} sec{}", t.description, String(dashes, '-'), t.seconds, t.suffix);
+            std::println("{} {} {:.4f} sec{}", t.description, std::string(dashes, '-'), t.seconds, t.suffix);
         }
         std::println("");
 
         if (do_bbox && points_processed > 0)
         {
             auto f = [](f64 v) { return std::format("{:.2f}", v); };
-            String xs0 = f(pr.bbox.min_x), xs1 = f(pr.bbox.max_x);
-            String ys0 = f(pr.bbox.min_y), ys1 = f(pr.bbox.max_y);
-            String zs0 = f(pr.bbox.min_z), zs1 = f(pr.bbox.max_z);
+            std::string xs0 = f(pr.bbox.min_x), xs1 = f(pr.bbox.max_x);
+            std::string ys0 = f(pr.bbox.min_y), ys1 = f(pr.bbox.max_y);
+            std::string zs0 = f(pr.bbox.min_z), zs1 = f(pr.bbox.max_z);
 
             usize w0 = std::max({xs0.size(), ys0.size(), zs0.size()});
             usize w1 = std::max({xs1.size(), ys1.size(), zs1.size()});

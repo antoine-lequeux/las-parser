@@ -5,6 +5,7 @@
 
 #include "platform.hpp"
 #include "types.hpp"
+#include <expected>
 
 namespace laspar
 {
@@ -13,10 +14,10 @@ class MemoryMappedFile
 {
 public:
 
-    static Result<MemoryMappedFile> open(const std::filesystem::path& filepath)
+    static std::expected<MemoryMappedFile, Error> open(const std::filesystem::path& filepath)
     {
         auto result = platform::map_file_read(filepath);
-        if (!result) return Fail(result.error());
+        if (!result) return std::unexpected(result.error());
         return MemoryMappedFile(std::move(*result));
     }
 

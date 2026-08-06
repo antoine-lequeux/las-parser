@@ -2,10 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <format>
-#include <optional>
-#include <string>
 #include <string_view>
 
 #define NOMINMAX
@@ -28,9 +25,6 @@ using f32 = float;
 using f64 = double;
 
 using usize = std::size_t;
-
-using String = std::string;
-using StringView = std::string_view;
 
 enum class Error : u8
 {
@@ -67,16 +61,6 @@ constexpr std::string_view to_string(Error err)
     }
     return "Unknown error";
 }
-
-template <typename T>
-using Result = std::expected<T, Error>;
-template <typename E>
-[[nodiscard]] constexpr std::unexpected<std::decay_t<E>> Fail(E&& err)
-{
-    return std::unexpected<std::decay_t<E>>(std::forward<E>(err));
-}
-template <typename T>
-using Option = std::optional<T>;
 
 template <typename To, typename From>
 [[nodiscard]] constexpr To as(From value)

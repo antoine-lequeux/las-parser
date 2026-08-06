@@ -107,7 +107,7 @@ inline constinit i32 passed_tests = 0;
 
 inline void run_test_case(
     bool has_class_filter, bool has_coord_filter, bool do_count, bool do_bbox, bool do_elev, bool write_kept,
-    bool write_dropped, bool has_decimation, const String& name, const u8* data, const HeaderView& view,
+    bool write_dropped, bool has_decimation, const std::string& name, const u8* data, const HeaderView& view,
     const std::array<u8, 256>& filter_mask, const std::array<f64, 256>& blend_mask, u32 classification_offset,
     u8 classification_byte_mask, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin,
     f64 filter_zmax, u64 keep_every

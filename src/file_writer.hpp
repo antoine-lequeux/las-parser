@@ -15,7 +15,7 @@ public:
 
     ~BufferedFileWriter() { close(); }
 
-    bool open(const String& path)
+    bool open(const std::string& path)
     {
         m_file = platform::open_file_write(path);
         return platform::is_valid_file_handle(m_file);

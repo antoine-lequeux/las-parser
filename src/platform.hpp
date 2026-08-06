@@ -2,6 +2,7 @@
 
 #include "types.hpp"
 #include <algorithm>
+#include <expected>
 #include <filesystem>
 #include <utility>
 
@@ -147,26 +148,26 @@ struct MappedMemory
     }
 };
 
-inline Result<MappedMemory> map_file_read(const std::filesystem::path& filepath)
+inline std::expected<MappedMemory, Error> map_file_read(const std::filesystem::path& filepath)
 {
     std::error_code ec;
     usize size = std::filesystem::file_size(filepath, ec);
 
-    if (ec) return Fail(Error::FileMissingOrUnavailable);
-    if (size == 0) return Fail(Error::FileEmpty);
+    if (ec) return std::unexpected(Error::FileMissingOrUnavailable);
+    if (size == 0) return std::unexpected(Error::FileEmpty);
 
 #ifdef _WIN32
     FileHandle file_handle = CreateFileW(
         filepath.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
         nullptr
     );
-    if (file_handle == INVALID_FILE_HANDLE) return Fail(Error::FailedToOpenFile);
+    if (file_handle == INVALID_FILE_HANDLE) return std::unexpected(Error::FailedToOpenFile);
 
     MapHandle mapping_handle = CreateFileMappingW(file_handle, nullptr, PAGE_READONLY, 0, 0, nullptr);
     if (mapping_handle == nullptr)
     {
         CloseHandle(file_handle);
-        return Fail(Error::FailedToCreateFileMapping);
+        return std::unexpected(Error::FailedToCreateFileMapping);
     }
 
     const auto* mapped_data = as<const u8*>(MapViewOfFile(mapping_handle, FILE_MAP_READ, 0, 0, 0));
@@ -174,11 +175,11 @@ inline Result<MappedMemory> map_file_read(const std::filesystem::path& filepath)
     {
         CloseHandle(mapping_handle);
         CloseHandle(file_handle);
-        return Fail(Error::FailedToMapViewOfFile);
+        return std::unexpected(Error::FailedToMapViewOfFile);
     }
 #else
     FileHandle file_handle = ::open(filepath.string().c_str(), O_RDONLY);
-    if (file_handle == INVALID_FILE_HANDLE) return Fail(Error::FailedToOpenFile);
+    if (file_handle == INVALID_FILE_HANDLE) return std::unexpected(Error::FailedToOpenFile);
 
     MapHandle mapping_handle = 0;
 
@@ -186,7 +187,7 @@ inline Result<MappedMemory> map_file_read(const std::filesystem::path& filepath)
     if (mapped_data == MAP_FAILED)
     {
         ::close(file_handle);
-        return Fail(Error::FailedToMapViewOfFile);
+        return std::unexpected(Error::FailedToMapViewOfFile);
     }
 #endif
 
