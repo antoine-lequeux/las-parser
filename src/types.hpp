@@ -48,7 +48,7 @@ enum class Error : u8
     UnsupportedPointFormat,
 };
 
-constexpr std::string_view to_string(Error err) noexcept
+constexpr std::string_view to_string(Error err)
 {
     switch (err)
     {

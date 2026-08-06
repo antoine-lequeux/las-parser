@@ -30,7 +30,7 @@ using MapHandle = i32;
 inline const FileHandle INVALID_FILE_HANDLE = -1;
 #endif
 
-inline FileHandle open_file_write(const std::filesystem::path& filepath) noexcept
+inline FileHandle open_file_write(const std::filesystem::path& filepath)
 {
 #ifdef _WIN32
     return CreateFileW(filepath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
