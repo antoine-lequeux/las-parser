@@ -66,6 +66,8 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         "$<$<COMPILE_LANGUAGE:CXX>:/EHs-c->"
         "$<$<COMPILE_LANGUAGE:CXX>:/GR->"
         "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>"
+        # Force UTF-8 for MSVC
+        "$<$<COMPILE_LANGUAGE:CXX>:/utf-8>"
     )
 
     option(USE_AVX512 "Compile with AVX-512 support" OFF)
