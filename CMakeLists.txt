@@ -173,6 +173,8 @@ target_compile_options(las_parser PRIVATE
     "$<$<CONFIG:Debug>:-g3>"
 )
 
+install(TARGETS las_parser DESTINATION bin)
+
 # ---------------------------------------------------------
 # Test executable
 # ---------------------------------------------------------
