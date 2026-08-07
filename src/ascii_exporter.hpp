@@ -4,6 +4,7 @@
 #include "las_data.hpp"
 #include "platform.hpp"
 #include <charconv>
+#include <cstring>
 #include <expected>
 #include <memory>
 #include <string>
