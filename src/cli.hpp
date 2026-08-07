@@ -342,7 +342,9 @@ inline int launch_cli(int argc, const char** argv)
         f64 gb_s = (as<f64>(view.point_count * view.point_record_length) / 1'000'000'000.0) / compute_seconds;
         std::string process_suffix = std::format(" ({:.1f} Mp/s, {:.2f} GB/s)", mp_s, gb_s);
 
-        timings.push_back({std::format("Processed {} points in", points_processed), compute_seconds, process_suffix});
+        timings.push_back(
+            {std::format("Processed {} points in", fmt_num(points_processed)), compute_seconds, process_suffix}
+        );
 
         if (do_write_kept || do_write_dropped)
         {
@@ -431,9 +433,7 @@ inline int launch_cli(int argc, const char** argv)
                 auto end = std::chrono::high_resolution_clock::now();
                 f64 io = *res;
                 f64 comp = std::chrono::duration<f64>(end - start).count() - io;
-                timings.push_back(
-                    {std::format("Exported {} points to CSV in", points_processed), comp, std::format(" ({}s io)", io)}
-                );
+                timings.push_back({std::format("Exported {} points to CSV in", fmt_num(points_processed)), comp});
             }
         }
 
@@ -452,9 +452,7 @@ inline int launch_cli(int argc, const char** argv)
                 auto end = std::chrono::high_resolution_clock::now();
                 f64 io = *res;
                 f64 comp = std::chrono::duration<f64>(end - start).count() - io;
-                timings.push_back(
-                    {std::format("Exported {} points to XYZ in", points_processed), comp, std::format(" ({}s io)", io)}
-                );
+                timings.push_back({std::format("Exported {} points to XYZ in", fmt_num(points_processed)), comp});
             }
         }
 
