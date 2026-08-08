@@ -3,7 +3,7 @@
 #include "header_view.hpp"
 #include "las_data.hpp"
 #include "platform.hpp"
-#include <charconv>
+#include <cmath>
 #include <cstring>
 #include <expected>
 #include <memory>
@@ -12,6 +12,52 @@
 
 namespace laspar
 {
+
+inline u32 decimals_from_scale(f64 scale)
+{
+    for (u32 n = 0; n <= 9; ++n)
+    {
+        f64 candidate = std::pow(10.0, -as<f64>(n));
+        if (std::abs(scale - candidate) < candidate * 1e-6) return n;
+    }
+    return 0xFFFFFFFFu;
+}
+
+struct FixedPointSpec
+{
+    u32 x_decimals;
+    u32 y_decimals;
+    u32 z_decimals;
+    i64 x_off_units;
+    i64 y_off_units;
+    i64 z_off_units;
+
+    static FixedPointSpec compute(const LasHeader& header)
+    {
+        FixedPointSpec spec {};
+        spec.x_decimals = decimals_from_scale(header.x_scale_factor);
+        spec.y_decimals = decimals_from_scale(header.y_scale_factor);
+        spec.z_decimals = decimals_from_scale(header.z_scale_factor);
+
+        auto compute_offset = [](f64 offset, u32& decimals) {
+            if (decimals == 0xFFFFFFFFu) return 0LL;
+            f64 off_scaled = offset * std::pow(10.0, decimals);
+            if (std::abs(off_scaled - as<f64>(std::llround(off_scaled))) > 1e-6)
+            {
+                // The offset isn't aligned with the scale grid
+                decimals = 0xFFFFFFFFu;
+                return 0LL;
+            }
+            return std::llround(off_scaled);
+        };
+
+        spec.x_off_units = compute_offset(header.x_offset, spec.x_decimals);
+        spec.y_off_units = compute_offset(header.y_offset, spec.y_decimals);
+        spec.z_off_units = compute_offset(header.z_offset, spec.z_decimals);
+
+        return spec;
+    }
+};
 
 class AsciiWriter
 {
@@ -65,6 +111,31 @@ public:
         if (m_pos + 64 > m_buffer_size) flush();
         auto [ptr, ec] = std::to_chars(m_buffer.get() + m_pos, m_buffer.get() + m_buffer_size, value);
         if (ec == std::errc()) m_pos = as<usize>(ptr - m_buffer.get());
+    }
+
+    inline void write_fixed(i64 value, u32 decimals)
+    {
+        bool neg = value < 0;
+        u64 v = neg ? as<u64>(-value) : as<u64>(value);
+
+        char tmp[24];
+        char* p = tmp + sizeof(tmp);
+
+        for (u32 i = 0; i < decimals; ++i)
+        {
+            *--p = char('0' + v % 10);
+            v /= 10;
+        }
+        if (decimals > 0) *--p = '.';
+        do
+        {
+            *--p = char('0' + v % 10);
+            v /= 10;
+        }
+        while (v != 0);
+        if (neg) *--p = '-';
+
+        write_str(std::string_view(p, as<usize>(tmp + sizeof(tmp) - p)));
     }
 
     void flush()
@@ -144,6 +215,8 @@ inline std::expected<f64, Error> export_xyz(
     const f64 ys = view.header->y_scale_factor, yo = view.header->y_offset;
     const f64 zs = view.header->z_scale_factor, zo = view.header->z_offset;
 
+    FixedPointSpec fixed_spec = FixedPointSpec::compute(*view.header);
+
     for (u64 i = 0; i < view.point_count; ++i)
     {
         u8 c = 0;
@@ -155,15 +228,25 @@ inline std::expected<f64, Error> export_xyz(
                 filter_ymin, filter_ymax, filter_zmin, filter_zmax, *view.header, current_decimation, keep_every
             ))
         {
-            f64 x = (pt->x * xs) + xo;
-            f64 y = (pt->y * ys) + yo;
-            f64 z = (pt->z * zs) + zo;
+            if (fixed_spec.x_decimals != 0xFFFFFFFFu)
+                writer.write_fixed(as<i64>(pt->x) + fixed_spec.x_off_units, fixed_spec.x_decimals);
+            else
+                writer.write_num((pt->x * xs) + xo);
 
-            writer.write_num(x);
             writer.write_char(' ');
-            writer.write_num(y);
+
+            if (fixed_spec.y_decimals != 0xFFFFFFFFu)
+                writer.write_fixed(as<i64>(pt->y) + fixed_spec.y_off_units, fixed_spec.y_decimals);
+            else
+                writer.write_num((pt->y * ys) + yo);
+
             writer.write_char(' ');
-            writer.write_num(z);
+
+            if (fixed_spec.z_decimals != 0xFFFFFFFFu)
+                writer.write_fixed(as<i64>(pt->z) + fixed_spec.z_off_units, fixed_spec.z_decimals);
+            else
+                writer.write_num((pt->z * zs) + zo);
+
             writer.write_char('\n');
         }
         p += stride;
@@ -174,19 +257,26 @@ inline std::expected<f64, Error> export_xyz(
 }
 
 template <typename FormatStruct>
-inline void write_csv_row(AsciiWriter& writer, const u8* p, const LasHeader& header)
+inline void write_csv_row(AsciiWriter& writer, const u8* p, const LasHeader& header, const FixedPointSpec& fixed_spec)
 {
     const auto* pt = reinterpret_cast<const FormatStruct*>(p);
 
-    f64 x = (pt->get_x() * header.x_scale_factor) + header.x_offset;
-    f64 y = (pt->get_y() * header.y_scale_factor) + header.y_offset;
-    f64 z = (pt->get_z() * header.z_scale_factor) + header.z_offset;
+    if (fixed_spec.x_decimals != 0xFFFFFFFFu)
+        writer.write_fixed(as<i64>(pt->get_x()) + fixed_spec.x_off_units, fixed_spec.x_decimals);
+    else
+        writer.write_num((pt->get_x() * header.x_scale_factor) + header.x_offset);
+    writer.write_char(',');
 
-    writer.write_num(x);
+    if (fixed_spec.y_decimals != 0xFFFFFFFFu)
+        writer.write_fixed(as<i64>(pt->get_y()) + fixed_spec.y_off_units, fixed_spec.y_decimals);
+    else
+        writer.write_num((pt->get_y() * header.y_scale_factor) + header.y_offset);
     writer.write_char(',');
-    writer.write_num(y);
-    writer.write_char(',');
-    writer.write_num(z);
+
+    if (fixed_spec.z_decimals != 0xFFFFFFFFu)
+        writer.write_fixed(as<i64>(pt->get_z()) + fixed_spec.z_off_units, fixed_spec.z_decimals);
+    else
+        writer.write_num((pt->get_z() * header.z_scale_factor) + header.z_offset);
     writer.write_char(',');
 
     if constexpr (requires { pt->base; })
@@ -294,6 +384,8 @@ inline std::expected<f64, Error> export_csv(
     const u32 stride = view.point_record_length;
     u64 current_decimation = 0;
 
+    FixedPointSpec fixed_spec = FixedPointSpec::compute(*view.header);
+
     for (u64 i = 0; i < view.point_count; ++i)
     {
         u8 c = 0;
@@ -307,17 +399,17 @@ inline std::expected<f64, Error> export_csv(
         {
             switch (format_id)
             {
-                case 0: write_csv_row<LasPointFormat0>(writer, p, *view.header); break;
-                case 1: write_csv_row<LasPointFormat1>(writer, p, *view.header); break;
-                case 2: write_csv_row<LasPointFormat2>(writer, p, *view.header); break;
-                case 3: write_csv_row<LasPointFormat3>(writer, p, *view.header); break;
-                case 4: write_csv_row<LasPointFormat4>(writer, p, *view.header); break;
-                case 5: write_csv_row<LasPointFormat5>(writer, p, *view.header); break;
-                case 6: write_csv_row<LasPointFormat6>(writer, p, *view.header); break;
-                case 7: write_csv_row<LasPointFormat7>(writer, p, *view.header); break;
-                case 8: write_csv_row<LasPointFormat8>(writer, p, *view.header); break;
-                case 9: write_csv_row<LasPointFormat9>(writer, p, *view.header); break;
-                case 10: write_csv_row<LasPointFormat10>(writer, p, *view.header); break;
+                case 0: write_csv_row<LasPointFormat0>(writer, p, *view.header, fixed_spec); break;
+                case 1: write_csv_row<LasPointFormat1>(writer, p, *view.header, fixed_spec); break;
+                case 2: write_csv_row<LasPointFormat2>(writer, p, *view.header, fixed_spec); break;
+                case 3: write_csv_row<LasPointFormat3>(writer, p, *view.header, fixed_spec); break;
+                case 4: write_csv_row<LasPointFormat4>(writer, p, *view.header, fixed_spec); break;
+                case 5: write_csv_row<LasPointFormat5>(writer, p, *view.header, fixed_spec); break;
+                case 6: write_csv_row<LasPointFormat6>(writer, p, *view.header, fixed_spec); break;
+                case 7: write_csv_row<LasPointFormat7>(writer, p, *view.header, fixed_spec); break;
+                case 8: write_csv_row<LasPointFormat8>(writer, p, *view.header, fixed_spec); break;
+                case 9: write_csv_row<LasPointFormat9>(writer, p, *view.header, fixed_spec); break;
+                case 10: write_csv_row<LasPointFormat10>(writer, p, *view.header, fixed_spec); break;
             }
         }
         p += stride;
