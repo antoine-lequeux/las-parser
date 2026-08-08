@@ -322,9 +322,11 @@ inline int launch_cli(int argc, const char** argv)
     bool do_export_csv = !export_csv_file.empty();
     bool do_export_xyz = !export_xyz_file.empty();
 
-    if (do_elev || do_count || do_bbox || do_write_kept || do_write_dropped || do_export_csv || do_export_xyz)
+    bool has_decimation = (keep_every > 1);
+    bool needs_simd = do_elev || do_count || do_bbox || do_write_kept || do_write_dropped;
+
+    if (needs_simd)
     {
-        bool has_decimation = (keep_every > 1);
         ProcessResult pr = process_points_simd(
             has_class_filter, has_coord_filter, do_count, do_bbox, do_elev, do_write_kept, do_write_dropped,
             has_decimation, file_result->data(), view, filter_mask, blend_mask, classification_offset,
@@ -418,54 +420,6 @@ inline int launch_cli(int argc, const char** argv)
             timings.push_back({"Updated output files in", std::chrono::duration<f64>(end2 - start2).count()});
         }
 
-        if (do_export_csv)
-        {
-            auto start = std::chrono::high_resolution_clock::now();
-            auto res = export_csv(
-                export_csv_file, has_class_filter, has_coord_filter, has_decimation, file_result->data(), view,
-                filter_mask, classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin,
-                filter_ymax, filter_zmin, filter_zmax, keep_every
-            );
-            if (!res)
-                std::println(stderr, "Error exporting CSV: {}", res.error());
-            else
-            {
-                auto end = std::chrono::high_resolution_clock::now();
-                f64 io = *res;
-                f64 comp = std::chrono::duration<f64>(end - start).count() - io;
-                timings.push_back({std::format("Exported {} points to CSV in", fmt_num(points_processed)), comp});
-            }
-        }
-
-        if (do_export_xyz)
-        {
-            auto start = std::chrono::high_resolution_clock::now();
-            auto res = export_xyz(
-                export_xyz_file, has_class_filter, has_coord_filter, has_decimation, file_result->data(), view,
-                filter_mask, classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin,
-                filter_ymax, filter_zmin, filter_zmax, keep_every
-            );
-            if (!res)
-                std::println(stderr, "Error exporting XYZ: {}", res.error());
-            else
-            {
-                auto end = std::chrono::high_resolution_clock::now();
-                f64 io = *res;
-                f64 comp = std::chrono::duration<f64>(end - start).count() - io;
-                timings.push_back({std::format("Exported {} points to XYZ in", fmt_num(points_processed)), comp});
-            }
-        }
-
-        usize max_len = 0;
-        for (const auto& t : timings) max_len = std::max(max_len, t.description.size());
-
-        for (const auto& t : timings)
-        {
-            usize dashes = max_len - t.description.size() + 3;
-            std::println("{} {} {:.4f} sec{}", t.description, std::string(dashes, '-'), t.seconds, t.suffix);
-        }
-        std::println("");
-
         if (do_bbox && points_processed > 0)
         {
             auto f = [](f64 v) { return std::format("{:.2f}", v); };
@@ -490,6 +444,65 @@ inline int launch_cli(int argc, const char** argv)
         }
 
         if (do_count && points_processed > 0) print_class_histogram(class_counts, format_id, hist_width);
+    }
+
+    if (do_export_csv)
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        auto res = export_csv(
+            export_csv_file, has_class_filter, has_coord_filter, has_decimation, file_result->data(), view, filter_mask,
+            classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin,
+            filter_zmax, keep_every
+        );
+        if (!res)
+            std::println(stderr, "Error exporting CSV: {}", res.error());
+        else
+        {
+            auto end = std::chrono::high_resolution_clock::now();
+            f64 io = res->second;
+            u64 pts = res->first;
+            f64 comp = std::chrono::duration<f64>(end - start).count() - io;
+            timings.push_back(
+                {std::format("Exported {} points to CSV in", fmt_num(pts)), comp,
+                 std::format(" (+ I/O operations: {:.4f} sec)", io)}
+            );
+        }
+    }
+
+    if (do_export_xyz)
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        auto res = export_xyz(
+            export_xyz_file, has_class_filter, has_coord_filter, has_decimation, file_result->data(), view, filter_mask,
+            classification_offset, classification_mask, filter_xmin, filter_xmax, filter_ymin, filter_ymax, filter_zmin,
+            filter_zmax, keep_every
+        );
+        if (!res)
+            std::println(stderr, "Error exporting XYZ: {}", res.error());
+        else
+        {
+            auto end = std::chrono::high_resolution_clock::now();
+            f64 io = res->second;
+            u64 pts = res->first;
+            f64 comp = std::chrono::duration<f64>(end - start).count() - io;
+            timings.push_back(
+                {std::format("Exported {} points to XYZ in", fmt_num(pts)), comp,
+                 std::format(" (+ I/O operations: {:.4f} sec)", io)}
+            );
+        }
+    }
+
+    if (!timings.empty())
+    {
+        usize max_len = 0;
+        for (const auto& t : timings) max_len = std::max(max_len, t.description.size());
+
+        for (const auto& t : timings)
+        {
+            usize dashes = max_len - t.description.size() + 3;
+            std::println("{} {} {:.4f} sec{}", t.description, std::string(dashes, '-'), t.seconds, t.suffix);
+        }
+        std::println("");
     }
     else if (!do_header && !do_lint)
     {

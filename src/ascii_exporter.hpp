@@ -194,7 +194,7 @@ inline bool keep_point(
     return true;
 }
 
-inline std::expected<f64, Error> export_xyz(
+inline std::expected<std::pair<u64, f64>, Error> export_xyz(
     const std::string& output_file, bool has_class_filter, bool has_coord_filter, bool has_decimation,
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask, u32 classification_offset,
     u8 classification_byte_mask, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin,
@@ -216,6 +216,7 @@ inline std::expected<f64, Error> export_xyz(
     const f64 zs = view.header->z_scale_factor, zo = view.header->z_offset;
 
     FixedPointSpec fixed_spec = FixedPointSpec::compute(*view.header);
+    u64 exported_count = 0;
 
     for (u64 i = 0; i < view.point_count; ++i)
     {
@@ -228,6 +229,7 @@ inline std::expected<f64, Error> export_xyz(
                 filter_ymin, filter_ymax, filter_zmin, filter_zmax, *view.header, current_decimation, keep_every
             ))
         {
+            exported_count++;
             if (fixed_spec.x_decimals != 0xFFFFFFFFu)
                 writer.write_fixed(as<i64>(pt->x) + fixed_spec.x_off_units, fixed_spec.x_decimals);
             else
@@ -253,7 +255,7 @@ inline std::expected<f64, Error> export_xyz(
     }
 
     writer.close();
-    return writer.get_io_seconds();
+    return std::make_pair(exported_count, writer.get_io_seconds());
 }
 
 template <typename FormatStruct>
@@ -351,7 +353,7 @@ inline void write_csv_row(AsciiWriter& writer, const u8* p, const LasHeader& hea
     writer.write_char('\n');
 }
 
-inline std::expected<f64, Error> export_csv(
+inline std::expected<std::pair<u64, f64>, Error> export_csv(
     const std::string& output_file, bool has_class_filter, bool has_coord_filter, bool has_decimation,
     const u8* file_data, const HeaderView& view, const std::array<u8, 256>& filter_mask, u32 classification_offset,
     u8 classification_byte_mask, f64 filter_xmin, f64 filter_xmax, f64 filter_ymin, f64 filter_ymax, f64 filter_zmin,
@@ -385,6 +387,7 @@ inline std::expected<f64, Error> export_csv(
     u64 current_decimation = 0;
 
     FixedPointSpec fixed_spec = FixedPointSpec::compute(*view.header);
+    u64 exported_count = 0;
 
     for (u64 i = 0; i < view.point_count; ++i)
     {
@@ -397,6 +400,7 @@ inline std::expected<f64, Error> export_csv(
                 filter_ymin, filter_ymax, filter_zmin, filter_zmax, *view.header, current_decimation, keep_every
             ))
         {
+            exported_count++;
             switch (format_id)
             {
                 case 0: write_csv_row<LasPointFormat0>(writer, p, *view.header, fixed_spec); break;
@@ -416,7 +420,7 @@ inline std::expected<f64, Error> export_csv(
     }
 
     writer.close();
-    return writer.get_io_seconds();
+    return std::make_pair(exported_count, writer.get_io_seconds());
 }
 
 } // namespace laspar
