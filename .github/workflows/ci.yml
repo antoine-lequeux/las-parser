@@ -21,8 +21,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Cache sample LAS file
+      id: cache-las
+      uses: actions/cache@v4
+      with:
+        path: test.las
+        key: las-testfile-v1
+
     - name: Download sample LAS file
-      run: curl -L https://github.com/laspy/laspy/raw/master/tests/data/simple1_4.las -o test.las
+      if: steps.cache-las.outputs.cache-hit != 'true'
+      run: curl -L https://huggingface.co/datasets/antoinelequeux/LAS-test/resolve/main/testfile.las -o test.las
 
     - name: Setup modern C++ compilers
       run: |

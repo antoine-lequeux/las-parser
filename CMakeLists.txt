@@ -106,6 +106,12 @@ FetchContent_Declare(
     SYSTEM
 )
 
+FetchContent_Declare(
+    ut
+    GIT_REPOSITORY https://github.com/boost-ext/ut.git
+    GIT_TAG        v2.1.1
+)
+
 # Silence all warnings during third-party library compilation.
 set(BACKUP_C_FLAGS "${CMAKE_C_FLAGS}")
 set(BACKUP_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
@@ -114,7 +120,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 endif()
 
-FetchContent_MakeAvailable(lyra eve)
+FetchContent_MakeAvailable(lyra eve ut)
 
 # Restore original flags for the actual project
 set(CMAKE_C_FLAGS "${BACKUP_C_FLAGS}")
@@ -186,6 +192,7 @@ add_executable(las_test
 
 target_link_libraries(las_test PRIVATE
     eve::eve
+    ut
 )
 
 target_compile_options(las_test PRIVATE
@@ -193,4 +200,15 @@ target_compile_options(las_test PRIVATE
     "$<$<CONFIG:Debug>:-g3>"
 )
 
-add_test(NAME las_test COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las")
+add_test(NAME "01_FullPass" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Full process (no filters)")
+add_test(NAME "02_ClassFilter1" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Class filter (1 class)")
+add_test(NAME "03_ClassFilter2" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Class filter (2 classes) + write kept")
+add_test(NAME "04_CoordFilterX" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Coord filter (X > med_x)")
+add_test(NAME "05_CoordFilterYZ" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Coord filter (Y < med_y, Z > med_z)")
+add_test(NAME "06_ClassCoordDropped" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Class + coord + write dropped")
+add_test(NAME "07_Decimation" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Decimation (keep every 10)")
+add_test(NAME "08_DecimationClass" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Decimation + class filter + write kept")
+add_test(NAME "09_OnlyFilters" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Only filters (no count/elev/bbox)")
+add_test(NAME "10_AllFeatures" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "All features ON + write both")
+add_test(NAME "11_HeavyDecimation" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Heavy decimation (keep every 123)")
+add_test(NAME "12_ExtremelyTight" COMMAND las_test "${CMAKE_SOURCE_DIR}/test.las" "Extremely tight coord filter")

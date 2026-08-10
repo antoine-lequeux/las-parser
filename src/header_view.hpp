@@ -27,14 +27,14 @@ inline std::expected<HeaderView, Error> validate_las_header(const u8* data, usiz
 
     if (header->offset_to_point_data < header->header_size) return std::unexpected(Error::CorruptHeader);
 
-    u64 total_points = header->number_of_point_records;
-    if (total_points == 0 && header->legacy_number_of_point_records > 0)
-        total_points = header->legacy_number_of_point_records;
+    u64 total_points = (header->version_major == 1 && header->version_minor >= 4)
+                           ? header->number_of_point_records
+                           : header->legacy_number_of_point_records;
 
     u16 point_len = header->point_data_record_length;
     if (point_len == 0) return std::unexpected(Error::CorruptHeader);
 
-    u64 required_bytes = as<uint64_t>(header->offset_to_point_data) + (total_points * point_len);
+    u64 required_bytes = as<u64>(header->offset_to_point_data) + (total_points * point_len);
     if (file_size < required_bytes) return std::unexpected(Error::TruncatedFile);
 
     return HeaderView {

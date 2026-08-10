@@ -95,6 +95,12 @@ inline ProcessResult process_points_scalar(
         else
         {
             dropped_count++;
+            result.dropped_bbox.min_x = std::min(result.dropped_bbox.min_x, x);
+            result.dropped_bbox.max_x = std::max(result.dropped_bbox.max_x, x);
+            result.dropped_bbox.min_y = std::min(result.dropped_bbox.min_y, y);
+            result.dropped_bbox.max_y = std::max(result.dropped_bbox.max_y, y);
+            result.dropped_bbox.min_z = std::min(result.dropped_bbox.min_z, z);
+            result.dropped_bbox.max_z = std::max(result.dropped_bbox.max_z, z);
         }
 
         p += stride;

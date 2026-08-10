@@ -127,7 +127,7 @@ inline ProcessResult process_points_simd(
         wf64 vy = eve::fma(eve::convert(vy_int, eve::as<f64>()), y_scale, y_offset);
         wf64 vz = eve::fma(eve::convert(vz_int, eve::as<f64>()), z_scale, z_offset);
 
-        if (has_class_filter || has_coord_filter || do_count)
+        if (has_class_filter || has_coord_filter || do_count || has_decimation)
         {
             u8 c0 = 0, c1 = 0, c2 = 0, c3 = 0;
             if (has_class_filter || do_count)
@@ -157,7 +157,7 @@ inline ProcessResult process_points_simd(
                 blend_val = eve::if_else(coord_blend, wf64(lane_pass), zero_pd);
             }
 
-            if (has_class_filter || has_coord_filter)
+            if (has_class_filter || has_coord_filter || has_decimation)
             {
                 wl64 blend = (blend_val != zero_pd);
                 u32 mask = get_blend_mask(blend);
@@ -470,7 +470,7 @@ inline void build_elev_histogram_simd(
 
         u32 mask = 15;
 
-        if (has_class_filter || has_coord_filter)
+        if (has_class_filter || has_coord_filter || has_decimation)
         {
             wi32 vx_int {pt0->x, pt1->x, pt2->x, pt3->x};
             wi32 vy_int {pt0->y, pt1->y, pt2->y, pt3->y};
@@ -486,7 +486,7 @@ inline void build_elev_histogram_simd(
                 c3 = p[stride * 3 + classification_offset] & classification_byte_mask;
             }
 
-            wl64 blend;
+            wl64 blend {true};
             if (has_class_filter && has_coord_filter)
             {
                 wf64 class_blend {blend_mask[c0], blend_mask[c1], blend_mask[c2], blend_mask[c3]};
